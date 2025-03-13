@@ -88,5 +88,13 @@ def get_projects(user_id):
     conn.close()
     return projects
 
+def get_tasks(project_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT task_id, task_name FROM tasks WHERE project_id = ?', (project_id,))
+    tasks = cursor.fetchall()
+    conn.close()
+    return tasks
+
 if __name__ == '__main__':
     create_database()
