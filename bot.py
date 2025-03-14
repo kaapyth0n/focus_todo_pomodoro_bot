@@ -89,7 +89,10 @@ async def start_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'start_time': datetime.now(),
         'job': context.job_queue.run_once(timer_finished, 25 * 60, data={'user_id': user_id})
     }
-    await update.message.reply_text('Timer started for 25 minutes.')
+    # Send message with a button to view the timer
+    keyboard = [[InlineKeyboardButton("View Timer", url=f'https://fleet-macaque-composed.ngrok-free.app/timer/{user_id}')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Timer started for 25 minutes.', reply_markup=reply_markup)
 
 async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
@@ -97,9 +100,8 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
     if user_id in timer_states:
         timer_states[user_id]['accumulated_time'] = 25
         timer_states[user_id]['state'] = 'stopped'
-        # Save session to database
-        # For now, just send message
-        await context.bot.send_message(chat_id=user_id, text='Time\'s up! Pomodoro session completed.')
+        # TODO: Save session to database
+        await context.bot.send_message(chat_id=user_id, text='Time’s up! Pomodoro session completed.')
         del timer_states[user_id]
 
 async def pause_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,12 +142,62 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_time = datetime.now()
         time_worked = (current_time - timer_states[user_id]['start_time']).total_seconds() / 60
         timer_states[user_id]['accumulated_time'] += time_worked
-    # Save session to database with accumulated_time
     accumulated_time = timer_states[user_id]['accumulated_time']
+    # TODO: Save session to database with accumulated_time
     await update.message.reply_text(f'Timer stopped. Total time worked: {accumulated_time:.2f} minutes.')
     if 'job' in timer_states[user_id]:
         timer_states[user_id]['job'].remove()
     del timer_states[user_id]
+
+app = Flask(__name__)
+
+@app.route('/timer/<int:user_id>')
+def timer_page(user_id):
+    if user_id not in timer_states:
+        return "No active timer."
+    state = timer_states[user_id]
+    if state['state'] == 'running':
+        start_time = state['start_time'].isoformat()
+        accumulated_time = state['accumulated_time']
+        return render_template_string("""
+            <html>
+                <body>
+                    <h1>Timer Running</h1>
+                    <p id="countdown"></p>
+                    <script>
+                        var startTime = new Date('{{ start_time }}').getTime();
+                        var accumulatedTime = {{ accumulated_time }};
+                        function updateCountdown() {
+                            var now = new Date().getTime();
+                            var timeWorked = (now - startTime) / 60000;  // in minutes
+                            var totalTime = accumulatedTime + timeWorked;
+                            var remaining = 25 - totalTime;
+                            if (remaining <= 0) {
+                                document.getElementById('countdown').innerText = "Time's up!";
+                            } else {
+                                var minutes = Math.floor(remaining);
+                                var seconds = Math.floor((remaining - minutes) * 60);
+                                document.getElementById('countdown').innerText = minutes + "m " + seconds + "s";
+                            }
+                        }
+                        setInterval(updateCountdown, 1000);
+                    </script>
+                </body>
+            </html>
+        """, start_time=start_time, accumulated_time=accumulated_time)
+    elif state['state'] == 'paused':
+        accumulated_time = state['accumulated_time']
+        remaining = 25 - accumulated_time
+        return f"Timer Paused. Remaining time: {remaining:.2f} minutes"
+    else:
+        return "Invalid state."
+    
+def run_flask():
+    app.run(port=5002)
+
+flask_thread = threading.Thread(target=run_flask)
+flask_thread.daemon = True  # Make thread exit when main program exits
+flask_thread.start()
 
 def main():
     application = Application.builder().token(TOKEN).build()

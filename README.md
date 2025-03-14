@@ -439,6 +439,8 @@ pip install flask
 
 Since the bot is running with application.run_polling(), which blocks, I need to run Flask in a separate thread.
 
+Note: For production, deploy Flask properly (e.g., with Gunicorn) and update the URL in the inline button.
+
 In mini_app.py:
 
 ```python
