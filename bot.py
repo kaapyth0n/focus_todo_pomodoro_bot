@@ -7,6 +7,7 @@ from telegram.ext import JobQueue
 import threading
 import os
 from config import TOKEN, DOMAIN_URL
+import logging
 
 # Import handlers
 from handlers import commands as cmd_handlers
@@ -18,6 +19,9 @@ from web_app import run_flask
 # These need to be accessible by handlers and potentially the web_app (via import)
 user_data = {}  # {user_id: {'current_project': project_id, 'current_task': task_id}}
 timer_states = {}  # {user_id: {'start_time': datetime, 'accumulated_time': int, 'state': 'running'/'paused'/'stopped', 'job': Job}}
+
+# Get a logger instance
+log = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -490,7 +494,7 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(f"Which task in '{project_name}' do you want to delete? (This action is irreversible!)", reply_markup=reply_markup)
 
 def main():
-    print(f"Initializing Pomodoro Bot...")
+    log.info("Initializing Pomodoro Bot...")
     application = Application.builder().token(TOKEN).build()
 
     # Register command handlers from handlers.commands
@@ -520,9 +524,18 @@ def main():
 
     # Start the bot
     print("Bot is running...")
+    log.info("Telegram bot polling started.")
     application.run_polling()
 
 if __name__ == '__main__':
+    # Configure logging early
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    # Optionally set higher level for noisy libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     # Initialize database on startup if it doesn't exist
     # This might be better placed in a separate setup script or check
     try:
@@ -531,13 +544,13 @@ if __name__ == '__main__':
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
         if not cursor.fetchone():
-            print("Database tables not found, initializing...")
+            log.info("Database tables not found, initializing...")
             database.create_database()
         else:
-            print("Database found.")
+            log.info("Database found and seems initialized.")
         conn.close()
     except Exception as e:
-        print(f"Error checking/initializing database: {e}")
+        log.critical(f"CRITICAL: Error checking/initializing database: {e}", exc_info=True)
         # Decide if you want to exit or continue without DB
         exit(1)
 
