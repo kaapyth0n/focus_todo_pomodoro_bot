@@ -443,7 +443,7 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                 )
                 keyboard = [
                     [InlineKeyboardButton("☕️ 5-min Break", callback_data="start_break:5")],
-                    [InlineKeyboardButton("休息 15-min Break", callback_data="start_break:15")] 
+                    [InlineKeyboardButton("☕️☕️ 15-min Break", callback_data="start_break:15")] 
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await context.bot.send_message(chat_id=user_id, text=success_message, reply_markup=reply_markup)
