@@ -302,5 +302,56 @@ def get_monthly_report(user_id):
     conn.close()
     return (total_minutes, project_breakdown)
 
+def delete_project(project_id):
+    """Deletes a project and all associated tasks and sessions."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        # Get associated task IDs first
+        cursor.execute("SELECT task_id FROM tasks WHERE project_id = ?", (project_id,))
+        task_ids = [row[0] for row in cursor.fetchall()]
+        
+        # Delete sessions associated with those tasks
+        if task_ids:
+            placeholders = ',' .join('?' * len(task_ids))
+            cursor.execute(f"DELETE FROM pomodoro_sessions WHERE task_id IN ({placeholders})", task_ids)
+            
+        # Delete tasks associated with the project
+        cursor.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+        
+        # Delete the project itself
+        cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+        
+        conn.commit()
+        print(f"Project {project_id} and related data deleted successfully.")
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error during project deletion: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def delete_task(task_id):
+    """Deletes a task and all associated sessions."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        # Delete sessions associated with the task
+        cursor.execute("DELETE FROM pomodoro_sessions WHERE task_id = ?", (task_id,))
+        
+        # Delete the task itself
+        cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        
+        conn.commit()
+        print(f"Task {task_id} and related sessions deleted successfully.")
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error during task deletion: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 if __name__ == '__main__':
     create_database()

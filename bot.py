@@ -45,7 +45,8 @@ async def select_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     project_name = ' '.join(context.args)
     if not project_name:
-        await update.message.reply_text('Please provide a project name. Usage: /select_project "Project Name"')
+        # If no project name is given, list projects instead
+        await list_projects(update, context)
         return
     projects = database.get_projects(user_id)
     for proj_id, proj_name in projects:
@@ -54,6 +55,20 @@ async def select_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f'Project "{project_name}" selected.')
             return
     await update.message.reply_text('Project not found. Create it with /create_project.')
+
+async def list_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    projects = database.get_projects(user_id)
+    if not projects:
+        await update.message.reply_text("You don't have any projects yet. Create one with /create_project.")
+        return
+        
+    keyboard = []
+    for project_id, project_name in projects:
+        keyboard.append([InlineKeyboardButton(project_name, callback_data=f"select_project:{project_id}")])
+        
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select a project:", reply_markup=reply_markup)
 
 async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -71,11 +86,12 @@ async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id not in user_data or 'current_project' not in user_data[user_id]:
-        await update.message.reply_text('Please select a project first with /select_project.')
+        await update.message.reply_text('Please select a project first with /select_project or /list_projects.')
         return
     task_name = ' '.join(context.args)
     if not task_name:
-        await update.message.reply_text('Please provide a task name. Usage: /select_task "Task Name"')
+        # If no task name is given, list tasks for the current project
+        await list_tasks(update, context)
         return
     project_id = user_data[user_id]['current_project']
     tasks = database.get_tasks(project_id)
@@ -85,6 +101,27 @@ async def select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f'Task "{task_name}" selected.')
             return
     await update.message.reply_text('Task not found. Create it with /create_task.')
+
+async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id not in user_data or 'current_project' not in user_data[user_id]:
+        await update.message.reply_text('Please select a project first using /select_project or /list_projects.')
+        return
+        
+    project_id = user_data[user_id]['current_project']
+    tasks = database.get_tasks(project_id)
+    
+    if not tasks:
+        project_name = database.get_project_name(project_id)
+        await update.message.reply_text(f"No tasks found for project '{project_name}'. Create one with /create_task.")
+        return
+        
+    keyboard = []
+    for task_id, task_name in tasks:
+        keyboard.append([InlineKeyboardButton(task_name, callback_data=f"select_task:{task_id}")])
+        
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select a task:", reply_markup=reply_markup)
 
 from datetime import datetime, timedelta
 
@@ -504,6 +541,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data
+    user_id = query.from_user.id # Use query.from_user.id for callback queries
+
     if data == "report_daily":
         # Create a fake update with the original message
         fake_update = Update(0, query.message)
@@ -517,6 +556,121 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fake_update = Update(0, query.message)
         fake_update.message.from_user = query.from_user
         await report_monthly(fake_update, context)
+    elif data.startswith("select_project:"):
+        project_id = int(data.split(":")[1])
+        project_name = database.get_project_name(project_id)
+        if project_name:
+            # Ensure user_data dictionary exists for the user
+            if user_id not in user_data:
+                user_data[user_id] = {}
+            user_data[user_id]['current_project'] = project_id
+            # Edit the original message to show selection
+            await query.edit_message_text(f'Project "{project_name}" selected.')
+            # Optionally, clear the current task selection
+            if 'current_task' in user_data[user_id]:
+                del user_data[user_id]['current_task']
+        else:
+            await query.edit_message_text('Error: Project not found.')
+    elif data.startswith("select_task:"):
+        task_id = int(data.split(":")[1])
+        task_name = database.get_task_name(task_id)
+        if task_name:
+            # Ensure user_data dictionary exists for the user (should already exist if project is selected)
+            if user_id not in user_data:
+                user_data[user_id] = {} # Should ideally not happen if project is selected
+            user_data[user_id]['current_task'] = task_id
+            await query.edit_message_text(f'Task "{task_name}" selected.')
+        else:
+            await query.edit_message_text('Error: Task not found.')
+
+    # --- Deletion Callbacks ---
+    elif data == "cancel_delete":
+        await query.edit_message_text("Deletion cancelled.")
+        
+    elif data.startswith("confirm_delete_project:"):
+        project_id = int(data.split(":")[1])
+        project_name = database.get_project_name(project_id) or "Unknown Project"
+        keyboard = [
+            [InlineKeyboardButton("🔴 Yes, DELETE it!", callback_data=f"delete_project:{project_id}")],
+            [InlineKeyboardButton("🟢 No, cancel", callback_data="cancel_delete")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(f"❗️ Are you ABSOLUTELY SURE you want to delete project '{project_name}'?\nThis will delete all its tasks and recorded time entries.", reply_markup=reply_markup)
+        
+    elif data.startswith("delete_project:"):
+        project_id = int(data.split(":")[1])
+        project_name = database.get_project_name(project_id) or "Unknown Project"
+        deleted = database.delete_project(project_id)
+        if deleted:
+             # Clear selected project if it was the one deleted
+            if user_id in user_data and user_data[user_id].get('current_project') == project_id:
+                del user_data[user_id]['current_project']
+                if 'current_task' in user_data[user_id]: # Also clear task
+                    del user_data[user_id]['current_task']
+            await query.edit_message_text(f"✅ Project '{project_name}' and all associated data have been deleted.")
+        else:
+            await query.edit_message_text(f"❌ Failed to delete project '{project_name}'. Check logs.")
+            
+    elif data.startswith("confirm_delete_task:"):
+        task_id = int(data.split(":")[1])
+        task_name = database.get_task_name(task_id) or "Unknown Task"
+        keyboard = [
+            [InlineKeyboardButton("🔴 Yes, DELETE it!", callback_data=f"delete_task:{task_id}")],
+            [InlineKeyboardButton("🟢 No, cancel", callback_data="cancel_delete")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(f"❗️ Are you ABSOLUTELY SURE you want to delete task '{task_name}'?\nThis will delete all its recorded time entries.", reply_markup=reply_markup)
+        
+    elif data.startswith("delete_task:"):
+        task_id = int(data.split(":")[1])
+        task_name = database.get_task_name(task_id) or "Unknown Task"
+        deleted = database.delete_task(task_id)
+        if deleted:
+            # Clear selected task if it was the one deleted
+            if user_id in user_data and user_data[user_id].get('current_task') == task_id:
+                del user_data[user_id]['current_task']
+            await query.edit_message_text(f"✅ Task '{task_name}' and its time entries have been deleted.")
+        else:
+            await query.edit_message_text(f"❌ Failed to delete task '{task_name}'. Check logs.")
+
+# --- Deletion Commands ---
+
+async def delete_project_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    projects = database.get_projects(user_id)
+    if not projects:
+        await update.message.reply_text("You don't have any projects to delete.")
+        return
+        
+    keyboard = []
+    for project_id, project_name in projects:
+        # Use a different callback prefix to trigger confirmation
+        keyboard.append([InlineKeyboardButton(f"🗑️ {project_name}", callback_data=f"confirm_delete_project:{project_id}")])
+        
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Which project do you want to delete? (This action is irreversible!)", reply_markup=reply_markup)
+
+async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id not in user_data or 'current_project' not in user_data[user_id]:
+        await update.message.reply_text('Please select a project first using /list_projects before deleting tasks.')
+        return
+        
+    project_id = user_data[user_id]['current_project']
+    tasks = database.get_tasks(project_id)
+    project_name = database.get_project_name(project_id)
+    
+    if not tasks:
+        await update.message.reply_text(f"No tasks found in project '{project_name}' to delete.")
+        return
+        
+    keyboard = []
+    for task_id, task_name in tasks:
+        # Use a different callback prefix to trigger confirmation
+        keyboard.append([InlineKeyboardButton(f"🗑️ {task_name}", callback_data=f"confirm_delete_task:{task_id}")])
+        
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(f"Which task in '{project_name}' do you want to delete? (This action is irreversible!)", reply_markup=reply_markup)
 
 def main():
     print(f"Starting Pomodoro Bot with domain: {DOMAIN_URL}")
@@ -534,6 +688,10 @@ def main():
     application.add_handler(CommandHandler('resume_timer', resume_timer))
     application.add_handler(CommandHandler('stop_timer', stop_timer))
     application.add_handler(CommandHandler('report', report_command))
+    application.add_handler(CommandHandler('list_projects', list_projects))
+    application.add_handler(CommandHandler('list_tasks', list_tasks))
+    application.add_handler(CommandHandler('delete_project', delete_project_command))
+    application.add_handler(CommandHandler('delete_task', delete_task_command))
     
     # Add handler for the inline buttons in reports
     from telegram.ext import CallbackQueryHandler

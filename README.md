@@ -74,14 +74,18 @@ Once the bot is running, you can interact with it in Telegram using these comman
 
 - `/start` - Initialize the bot
 - `/create_project "Project Name"` - Create a new project
-- `/select_project "Project Name"` - Select an existing project
+- `/select_project "Project Name"` - Select an existing project (or use `/list_projects`)
+- `/list_projects` - List your projects and select one via buttons
 - `/create_task "Task Name"` - Create a new task in the current project
-- `/select_task "Task Name"` - Select a task from the current project
-- `/start_timer` - Start a 25-minute Pomodoro timer
+- `/select_task "Task Name"` - Select a task from the current project (or use `/list_tasks`)
+- `/list_tasks` - List tasks in the current project and select one via buttons
+- `/start_timer` - Start a 25-minute Pomodoro timer for the selected task
 - `/pause_timer` - Pause the current timer
 - `/resume_timer` - Resume a paused timer
 - `/stop_timer` - Stop the current timer
 - `/report` - View productivity reports (daily, weekly, monthly)
+- `/delete_project` - Select a project to delete (asks for confirmation)
+- `/delete_task` - Select a task in the current project to delete (asks for confirmation)
 
 ## Development
 
