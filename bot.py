@@ -1,36 +1,28 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 import database
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import JobQueue
 import threading
-from flask import Flask, render_template_string
 import os
-from dotenv import load_dotenv
+from config import TOKEN, DOMAIN_URL
 
-# Load environment variables from .env file
-load_dotenv()
+# Import handlers
+from handlers import commands as cmd_handlers
+from handlers import callbacks as cb_handlers
+# Import Flask runner
+from web_app import run_flask
 
-# Get bot token and domain from environment variables
-TOKEN = os.getenv('BOT_TOKEN')
-DOMAIN_URL = os.getenv('DOMAIN_URL')
-
-# Validate required environment variables
-if not TOKEN:
-    raise ValueError("Missing BOT_TOKEN in environment variables. Please check your .env file.")
-if not DOMAIN_URL:
-    print("Warning: DOMAIN_URL not found in environment variables. Using localhost as fallback.")
-    DOMAIN_URL = "http://localhost:5002"
+# Shared state (consider moving to a better place later, e.g., context.bot_data or a dedicated module)
+# These need to be accessible by handlers and potentially the web_app (via import)
+user_data = {}  # {user_id: {'current_project': project_id, 'current_task': task_id}}
+timer_states = {}  # {user_id: {'start_time': datetime, 'accumulated_time': int, 'state': 'running'/'paused'/'stopped', 'job': Job}}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     database.add_user(user.id, user.first_name, user.last_name)
     await update.message.reply_text('Welcome to your Focus To-Do List Bot! Use /create_project to get started.')
-
-# Dictionary to store user state (e.g., selected project)
-user_data = {}  # {user_id: {'current_project': project_id}}
-timer_states = {}  # {user_id: {'start_time': datetime, 'accumulated_time': int, 'state': 'running'/'paused', 'job': APScheduler job}}
 
 async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -268,181 +260,6 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clean up timer state
     del timer_states[user_id]
 
-app = Flask(__name__)
-
-@app.route('/timer/<int:user_id>')
-def timer_page(user_id):
-    if user_id not in timer_states:
-        return render_template_string("""
-            <html>
-                <head>
-                    <title>Focus Pomodoro Timer</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            margin-top: 50px;
-                        }
-                        .message {
-                            color: #666;
-                            font-size: 18px;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <h1>No Active Timer</h1>
-                    <p class="message">There is no active timer for this user.</p>
-                </body>
-            </html>
-        """)
-    
-    state = timer_states[user_id]
-    if state['state'] == 'running':
-        start_time = state['start_time'].isoformat()
-        accumulated_time = state['accumulated_time']
-        return render_template_string("""
-            <html>
-                <head>
-                    <title>Focus Pomodoro Timer</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            margin-top: 50px;
-                            background-color: #f7f9fc;
-                        }
-                        .timer-container {
-                            max-width: 500px;
-                            margin: 0 auto;
-                            padding: 20px;
-                            border-radius: 10px;
-                            background-color: white;
-                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        }
-                        .timer {
-                            font-size: 60px;
-                            font-weight: bold;
-                            color: #333;
-                            margin: 30px 0;
-                        }
-                        .status {
-                            color: #4CAF50;
-                            font-size: 18px;
-                            margin-bottom: 20px;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="timer-container">
-                        <h1>Focus Timer</h1>
-                        <div class="status">Timer Running</div>
-                        <div id="countdown" class="timer">25:00</div>
-                    </div>
-                    <script>
-                        var startTime = new Date('{{ start_time }}').getTime();
-                        var accumulatedTime = {{ accumulated_time }};
-                        
-                        function updateCountdown() {
-                            var now = new Date().getTime();
-                            var timeWorked = (now - startTime) / 60000;  // in minutes
-                            var totalTime = accumulatedTime + timeWorked;
-                            var remaining = 25 - totalTime;
-                            
-                            if (remaining <= 0) {
-                                document.getElementById('countdown').innerText = "00:00";
-                                document.querySelector('.status').innerText = "Time's up!";
-                                document.querySelector('.status').style.color = "#F44336";
-                            } else {
-                                var minutes = Math.floor(remaining);
-                                var seconds = Math.floor((remaining - minutes) * 60);
-                                document.getElementById('countdown').innerText = 
-                                    String(minutes).padStart(2, '0') + ":" + 
-                                    String(seconds).padStart(2, '0');
-                            }
-                        }
-                        
-                        // Update immediately and then every second
-                        updateCountdown();
-                        setInterval(updateCountdown, 1000);
-                    </script>
-                </body>
-            </html>
-        """, start_time=start_time, accumulated_time=accumulated_time)
-    elif state['state'] == 'paused':
-        accumulated_time = state['accumulated_time']
-        remaining = 25 - accumulated_time
-        minutes = int(remaining)
-        seconds = int((remaining - minutes) * 60)
-        return render_template_string("""
-            <html>
-                <head>
-                    <title>Focus Pomodoro Timer</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            margin-top: 50px;
-                            background-color: #f7f9fc;
-                        }
-                        .timer-container {
-                            max-width: 500px;
-                            margin: 0 auto;
-                            padding: 20px;
-                            border-radius: 10px;
-                            background-color: white;
-                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        }
-                        .timer {
-                            font-size: 60px;
-                            font-weight: bold;
-                            color: #333;
-                            margin: 30px 0;
-                        }
-                        .status {
-                            color: #FFC107;
-                            font-size: 18px;
-                            margin-bottom: 20px;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="timer-container">
-                        <h1>Focus Timer</h1>
-                        <div class="status">Timer Paused</div>
-                        <div class="timer">{{ minutes }}:{{ seconds }}</div>
-                    </div>
-                </body>
-            </html>
-        """, minutes=f"{minutes:02d}", seconds=f"{seconds:02d}")
-    else:
-        return render_template_string("""
-            <html>
-                <head>
-                    <title>Focus Pomodoro Timer</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            margin-top: 50px;
-                        }
-                        .message {
-                            color: #666;
-                            font-size: 18px;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <h1>Invalid Timer State</h1>
-                    <p class="message">The timer is in an invalid state.</p>
-                </body>
-            </html>
-        """)
-    
-def run_flask():
-    # Use the port from environment variable if available, otherwise default to 5002
-    port = int(os.getenv('FLASK_PORT', 5002))
-    app.run(host='0.0.0.0', port=port)
-
 # Report commands
 async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -673,37 +490,55 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(f"Which task in '{project_name}' do you want to delete? (This action is irreversible!)", reply_markup=reply_markup)
 
 def main():
-    print(f"Starting Pomodoro Bot with domain: {DOMAIN_URL}")
+    print(f"Initializing Pomodoro Bot...")
     application = Application.builder().token(TOKEN).build()
-    job_queue = application.job_queue
-    
-    # Register the commands
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('create_project', create_project))
-    application.add_handler(CommandHandler('select_project', select_project))
-    application.add_handler(CommandHandler('create_task', create_task))
-    application.add_handler(CommandHandler('select_task', select_task))
-    application.add_handler(CommandHandler('start_timer', start_timer))
-    application.add_handler(CommandHandler('pause_timer', pause_timer))
-    application.add_handler(CommandHandler('resume_timer', resume_timer))
-    application.add_handler(CommandHandler('stop_timer', stop_timer))
-    application.add_handler(CommandHandler('report', report_command))
-    application.add_handler(CommandHandler('list_projects', list_projects))
-    application.add_handler(CommandHandler('list_tasks', list_tasks))
-    application.add_handler(CommandHandler('delete_project', delete_project_command))
-    application.add_handler(CommandHandler('delete_task', delete_task_command))
-    
-    # Add handler for the inline buttons in reports
-    from telegram.ext import CallbackQueryHandler
-    application.add_handler(CallbackQueryHandler(button_callback))
 
-    # Start Flask in a separate thread
+    # Register command handlers from handlers.commands
+    application.add_handler(CommandHandler('start', cmd_handlers.start))
+    application.add_handler(CommandHandler('create_project', cmd_handlers.create_project))
+    application.add_handler(CommandHandler('select_project', cmd_handlers.select_project))
+    application.add_handler(CommandHandler('list_projects', cmd_handlers.list_projects))
+    application.add_handler(CommandHandler('create_task', cmd_handlers.create_task))
+    application.add_handler(CommandHandler('select_task', cmd_handlers.select_task))
+    application.add_handler(CommandHandler('list_tasks', cmd_handlers.list_tasks))
+    application.add_handler(CommandHandler('start_timer', cmd_handlers.start_timer))
+    application.add_handler(CommandHandler('pause_timer', cmd_handlers.pause_timer))
+    application.add_handler(CommandHandler('resume_timer', cmd_handlers.resume_timer))
+    application.add_handler(CommandHandler('stop_timer', cmd_handlers.stop_timer))
+    application.add_handler(CommandHandler('report', cmd_handlers.report_command))
+    application.add_handler(CommandHandler('delete_project', cmd_handlers.delete_project_command))
+    application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
+    application.add_handler(CommandHandler('help', cmd_handlers.help_command))
+
+    # Register callback query handler from handlers.callbacks
+    application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
+
+    # Start Flask in a separate thread (imported from web_app.py)
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True  # Make thread exit when main program exits
     flask_thread.start()
 
     # Start the bot
+    print("Bot is running...")
     application.run_polling()
 
 if __name__ == '__main__':
+    # Initialize database on startup if it doesn't exist
+    # This might be better placed in a separate setup script or check
+    try:
+        conn = database.sqlite3.connect(database.DB_NAME)
+        # Simple check if tables exist, otherwise create them
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
+        if not cursor.fetchone():
+            print("Database tables not found, initializing...")
+            database.create_database()
+        else:
+            print("Database found.")
+        conn.close()
+    except Exception as e:
+        print(f"Error checking/initializing database: {e}")
+        # Decide if you want to exit or continue without DB
+        exit(1)
+
     main()

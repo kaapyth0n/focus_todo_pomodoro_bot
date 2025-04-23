@@ -7,12 +7,16 @@ def create_database():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Users table
+    # Users table - Add current_project_id and current_task_id
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             first_name TEXT,
-            last_name TEXT
+            last_name TEXT,
+            current_project_id INTEGER DEFAULT NULL, 
+            current_task_id INTEGER DEFAULT NULL,
+            FOREIGN KEY (current_project_id) REFERENCES projects(project_id) ON DELETE SET NULL,
+            FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
         )
     ''')
     
@@ -22,7 +26,7 @@ def create_database():
             project_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             project_name TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     ''')
     
@@ -32,37 +36,91 @@ def create_database():
             task_id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER,
             task_name TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(project_id)
+            FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
         )
     ''')
     
-    # Pomodoro sessions table
+    # Pomodoro sessions table - Add session_type
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pomodoro_sessions (
             session_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
-            project_id INTEGER,
-            task_id INTEGER,
+            project_id INTEGER, -- Can be NULL for breaks
+            task_id INTEGER,    -- Can be NULL for breaks
             start_time TEXT,
             end_time TEXT,
-            work_duration REAL,  -- in minutes (using REAL for decimal precision)
-            completed INTEGER,   -- 0 or 1 (boolean)
-            FOREIGN KEY (user_id) REFERENCES users(user_id),
-            FOREIGN KEY (project_id) REFERENCES projects(project_id),
-            FOREIGN KEY (task_id) REFERENCES tasks(task_id)
+            work_duration REAL,  -- Changed to duration_minutes
+            session_type TEXT DEFAULT 'work', -- Add session_type ('work', 'break')
+            completed INTEGER,   
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+            FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
         )
     ''')
     
     conn.commit()
     conn.close()
-    print("Database initialized successfully.")
+    print("Database initialized/checked successfully.")
 
 # Helper functions
 def add_user(user_id, first_name, last_name):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('INSERT OR IGNORE INTO users (user_id, first_name, last_name) VALUES (?, ?, ?)', 
-                   (user_id, first_name, last_name))
+    # Insert or ignore if user exists, but update names if provided
+    cursor.execute('''
+        INSERT INTO users (user_id, first_name, last_name) VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            first_name = excluded.first_name,
+            last_name = excluded.last_name
+        WHERE first_name != excluded.first_name OR last_name != excluded.last_name
+    ''', (user_id, first_name, last_name))
+    conn.commit()
+    conn.close()
+
+def set_current_project(user_id, project_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # Also clear the current task when project changes
+    cursor.execute("UPDATE users SET current_project_id = ?, current_task_id = NULL WHERE user_id = ?", (project_id, user_id))
+    conn.commit()
+    conn.close()
+
+def set_current_task(user_id, task_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET current_task_id = ? WHERE user_id = ?", (task_id, user_id))
+    conn.commit()
+    conn.close()
+
+def get_current_project(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT current_project_id FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] is not None else None
+
+def get_current_task(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT current_task_id FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] is not None else None
+
+def clear_current_project(user_id):
+    """Clears both current project and task for the user."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET current_project_id = NULL, current_task_id = NULL WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def clear_current_task(user_id):
+    """Clears only the current task for the user."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET current_task_id = NULL WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 
@@ -76,6 +134,44 @@ def add_project(user_id, project_name):
     conn.close()
     return project_id
 
+def get_projects(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT project_id, project_name FROM projects WHERE user_id = ?', (user_id,))
+    projects = cursor.fetchall()
+    conn.close()
+    return projects
+
+def get_project_name(project_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT project_name FROM projects WHERE project_id = ?', (project_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+def delete_project(project_id):
+    """Deletes a project. Associated tasks/sessions are handled by CASCADE constraints."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute("PRAGMA foreign_keys = ON") # Ensure constraints are enforced
+    cursor = conn.cursor()
+    try:
+        # Clear this project as current project for any user
+        cursor.execute("UPDATE users SET current_project_id = NULL, current_task_id = NULL WHERE current_project_id = ?", (project_id,))
+        
+        # Delete the project (CASCADE should handle tasks and sessions)
+        cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+        
+        conn.commit()
+        print(f"Project {project_id} deleted successfully (CASCADE handled related data).")
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error during project deletion: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 def add_task(project_id, task_name):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -86,14 +182,6 @@ def add_task(project_id, task_name):
     conn.close()
     return task_id
 
-def get_projects(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('SELECT project_id, project_name FROM projects WHERE user_id = ?', (user_id,))
-    projects = cursor.fetchall()
-    conn.close()
-    return projects
-
 def get_tasks(project_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -101,14 +189,6 @@ def get_tasks(project_id):
     tasks = cursor.fetchall()
     conn.close()
     return tasks
-
-def get_project_name(project_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('SELECT project_name FROM projects WHERE project_id = ?', (project_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
 
 def get_task_name(task_id):
     conn = sqlite3.connect(DB_NAME)
@@ -118,17 +198,40 @@ def get_task_name(task_id):
     conn.close()
     return result[0] if result else None
 
-def add_pomodoro_session(user_id, project_id, task_id, start_time, work_duration, completed=0):
+def delete_task(task_id):
+    """Deletes a task. Associated sessions are handled by CASCADE constraints."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute("PRAGMA foreign_keys = ON") # Ensure constraints are enforced
+    cursor = conn.cursor()
+    try:
+        # Clear this task as current task for any user
+        cursor.execute("UPDATE users SET current_task_id = NULL WHERE current_task_id = ?", (task_id,))
+
+        # Delete the task (CASCADE should handle sessions)
+        cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        
+        conn.commit()
+        print(f"Task {task_id} deleted successfully (CASCADE handled related sessions).")
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error during task deletion: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def add_pomodoro_session(user_id, start_time, duration_minutes, completed=0, session_type='work', project_id=None, task_id=None):
     """
-    Add a completed Pomodoro session to the database
+    Add a completed session (work or break) to the database.
     
     Parameters:
     user_id (int): Telegram user ID
-    project_id (int): ID of the project
-    task_id (int): ID of the task
-    start_time (datetime): When the timer was started
-    work_duration (float): Time worked in minutes
-    completed (int): 1 if the full 25 minutes was completed, 0 otherwise
+    start_time (datetime): When the timer was started (initial start)
+    duration_minutes (float): Time worked/break duration in minutes
+    completed (int): 1 if the full duration was completed, 0 otherwise
+    session_type (str): 'work' or 'break'
+    project_id (int, optional): ID of the project (for work sessions)
+    task_id (int, optional): ID of the task (for work sessions)
     
     Returns:
     int: The ID of the inserted session
@@ -136,15 +239,19 @@ def add_pomodoro_session(user_id, project_id, task_id, start_time, work_duration
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Convert datetime to string for SQLite storage
     start_time_str = start_time.isoformat()
-    end_time_str = datetime.now().isoformat()
+    end_time_str = datetime.now().isoformat() 
     
+    # Ensure project/task are NULL if it's a break session
+    if session_type == 'break':
+        project_id = None
+        task_id = None
+
     cursor.execute('''
         INSERT INTO pomodoro_sessions 
-        (user_id, project_id, task_id, start_time, end_time, work_duration, completed)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (user_id, project_id, task_id, start_time_str, end_time_str, work_duration, completed))
+        (user_id, project_id, task_id, start_time, end_time, work_duration, session_type, completed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (user_id, project_id, task_id, start_time_str, end_time_str, duration_minutes, session_type, completed))
     
     session_id = cursor.lastrowid
     conn.commit()
@@ -166,25 +273,26 @@ def get_daily_report(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Get today's date
-    today = datetime.now().date().isoformat()
+    # Get today's date in UTC to be safe
+    today = datetime.utcnow().date().isoformat()
     
-    # Get total minutes worked today
+    # Get total WORK minutes worked today
     cursor.execute('''
-        SELECT SUM(work_duration) 
+        SELECT SUM(COALESCE(work_duration, 0)) 
         FROM pomodoro_sessions
-        WHERE user_id = ? AND DATE(start_time) = ?
+        WHERE user_id = ? AND DATE(start_time) = DATE(?) AND session_type = 'work'
     ''', (user_id, today))
     
-    total_minutes = cursor.fetchone()[0] or 0
+    total_minutes = cursor.fetchone()[0] or 0.0
     
-    # Get breakdown by project
+    # Get breakdown by project (only for work sessions)
     cursor.execute('''
-        SELECT p.project_name, SUM(ps.work_duration)
+        SELECT p.project_name, SUM(COALESCE(ps.work_duration, 0))
         FROM pomodoro_sessions ps
         JOIN projects p ON ps.project_id = p.project_id
-        WHERE ps.user_id = ? AND DATE(ps.start_time) = ?
-        GROUP BY ps.project_id
+        WHERE ps.user_id = ? AND DATE(ps.start_time) = DATE(?) AND ps.session_type = 'work'
+        GROUP BY ps.project_id, p.project_name
+        ORDER BY SUM(COALESCE(ps.work_duration, 0)) DESC
     ''', (user_id, today))
     
     project_breakdown = cursor.fetchall()
@@ -194,7 +302,7 @@ def get_daily_report(user_id):
 
 def get_weekly_report(user_id):
     """
-    Get the total time worked this week for a user
+    Get the total time worked this week (Mon-Sun) for a user
     
     Parameters:
     user_id (int): Telegram user ID
@@ -206,43 +314,46 @@ def get_weekly_report(user_id):
         project_breakdown (list): List of (project_name, minutes) tuples
     """
     conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row  # This allows accessing columns by name
+    conn.row_factory = sqlite3.Row  # Allows accessing columns by name
     cursor = conn.cursor()
     
-    # Get total minutes worked this week
+    # Get total WORK minutes worked this week
     cursor.execute('''
-        SELECT SUM(work_duration) as total
+        SELECT SUM(COALESCE(work_duration, 0)) as total
         FROM pomodoro_sessions
         WHERE user_id = ? 
-        AND DATE(start_time) >= date('now', 'weekday 0', '-6 days')
-        AND DATE(start_time) <= date('now')
+        AND DATE(start_time) >= DATE('now', 'weekday 0', '-6 days') -- Previous Monday
+        AND DATE(start_time) < DATE('now', 'weekday 0', '+1 day') -- Next Monday
+        AND session_type = 'work'
     ''', (user_id,))
     
     result = cursor.fetchone()
-    total_minutes = result['total'] if result and result['total'] else 0
+    total_minutes = result['total'] if result and result['total'] else 0.0
     
-    # Get breakdown by day
+    # Get WORK breakdown by day
     cursor.execute('''
-        SELECT DATE(start_time) as day, SUM(work_duration) as minutes
+        SELECT DATE(start_time) as day, SUM(COALESCE(work_duration, 0)) as minutes
         FROM pomodoro_sessions
         WHERE user_id = ?
-        AND DATE(start_time) >= date('now', 'weekday 0', '-6 days')
-        AND DATE(start_time) <= date('now')
-        GROUP BY DATE(start_time)
-        ORDER BY DATE(start_time)
+        AND DATE(start_time) >= DATE('now', 'weekday 0', '-6 days')
+        AND DATE(start_time) < DATE('now', 'weekday 0', '+1 day')
+        AND session_type = 'work'
+        GROUP BY day
+        ORDER BY day
     ''', (user_id,))
     
     daily_breakdown = [(row['day'], row['minutes']) for row in cursor.fetchall()]
     
-    # Get breakdown by project
+    # Get WORK breakdown by project
     cursor.execute('''
-        SELECT p.project_name, SUM(ps.work_duration) as minutes
+        SELECT p.project_name, SUM(COALESCE(ps.work_duration, 0)) as minutes
         FROM pomodoro_sessions ps
         JOIN projects p ON ps.project_id = p.project_id
         WHERE ps.user_id = ?
-        AND DATE(ps.start_time) >= date('now', 'weekday 0', '-6 days')
-        AND DATE(ps.start_time) <= date('now')
-        GROUP BY ps.project_id
+        AND DATE(ps.start_time) >= DATE('now', 'weekday 0', '-6 days')
+        AND DATE(ps.start_time) < DATE('now', 'weekday 0', '+1 day')
+        AND ps.session_type = 'work'
+        GROUP BY ps.project_id, p.project_name
         ORDER BY minutes DESC
     ''', (user_id,))
     
@@ -267,91 +378,45 @@ def get_monthly_report(user_id):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Get the current month's start and end dates
-    cursor.execute("SELECT date('now', 'start of month') as start_date, date('now', 'start of month', '+1 month', '-1 day') as end_date")
-    date_range = cursor.fetchone()
-    start_date = date_range['start_date']
-    end_date = date_range['end_date']
+    # Get the current month's start and end dates (using SQLite functions)
+    cursor.execute("SELECT DATE('now', 'start of month') as start_date")
+    start_date = cursor.fetchone()['start_date']
+    cursor.execute("SELECT DATE('now', 'start of month', '+1 month') as next_month_start")
+    next_month_start = cursor.fetchone()['next_month_start']
     
-    # Get total minutes worked this month
+    # Get total WORK minutes worked this month
     cursor.execute('''
-        SELECT SUM(work_duration) as total
+        SELECT SUM(COALESCE(work_duration, 0)) as total
         FROM pomodoro_sessions
         WHERE user_id = ? 
-        AND DATE(start_time) >= ?
-        AND DATE(start_time) <= ?
-    ''', (user_id, start_date, end_date))
+        AND DATE(start_time) >= ? 
+        AND DATE(start_time) < ?
+        AND session_type = 'work'
+    ''', (user_id, start_date, next_month_start))
     
     result = cursor.fetchone()
-    total_minutes = result['total'] if result and result['total'] else 0
+    total_minutes = result['total'] if result and result['total'] else 0.0
     
-    # Get breakdown by project
+    # Get WORK breakdown by project
     cursor.execute('''
-        SELECT p.project_name, SUM(ps.work_duration) as minutes
+        SELECT p.project_name, SUM(COALESCE(ps.work_duration, 0)) as minutes
         FROM pomodoro_sessions ps
         JOIN projects p ON ps.project_id = p.project_id
         WHERE ps.user_id = ?
-        AND DATE(ps.start_time) >= ?
-        AND DATE(ps.start_time) <= ?
-        GROUP BY ps.project_id
+        AND DATE(ps.start_time) >= ? 
+        AND DATE(ps.start_time) < ?
+        AND ps.session_type = 'work'
+        GROUP BY ps.project_id, p.project_name
         ORDER BY minutes DESC
-    ''', (user_id, start_date, end_date))
+    ''', (user_id, start_date, next_month_start))
     
     project_breakdown = [(row['project_name'], row['minutes']) for row in cursor.fetchall()]
     
     conn.close()
     return (total_minutes, project_breakdown)
 
-def delete_project(project_id):
-    """Deletes a project and all associated tasks and sessions."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    try:
-        # Get associated task IDs first
-        cursor.execute("SELECT task_id FROM tasks WHERE project_id = ?", (project_id,))
-        task_ids = [row[0] for row in cursor.fetchall()]
-        
-        # Delete sessions associated with those tasks
-        if task_ids:
-            placeholders = ',' .join('?' * len(task_ids))
-            cursor.execute(f"DELETE FROM pomodoro_sessions WHERE task_id IN ({placeholders})", task_ids)
-            
-        # Delete tasks associated with the project
-        cursor.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
-        
-        # Delete the project itself
-        cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
-        
-        conn.commit()
-        print(f"Project {project_id} and related data deleted successfully.")
-        return True
-    except sqlite3.Error as e:
-        print(f"Database error during project deletion: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
-
-def delete_task(task_id):
-    """Deletes a task and all associated sessions."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    try:
-        # Delete sessions associated with the task
-        cursor.execute("DELETE FROM pomodoro_sessions WHERE task_id = ?", (task_id,))
-        
-        # Delete the task itself
-        cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
-        
-        conn.commit()
-        print(f"Task {task_id} and related sessions deleted successfully.")
-        return True
-    except sqlite3.Error as e:
-        print(f"Database error during task deletion: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
-
 if __name__ == '__main__':
     create_database()
+    # You might want to add ALTER TABLE statements here if needed for existing dbs
+    # e.g., try adding columns and ignore errors if they exist
+    print("Database checked/initialized.")
