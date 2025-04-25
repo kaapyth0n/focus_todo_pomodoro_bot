@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 import database
 from datetime import datetime, timedelta
@@ -357,7 +357,7 @@ async def _start_timer_internal(context: ContextTypes.DEFAULT_TYPE, user_id: int
     }
 
     timer_url = f'{DOMAIN_URL}/timer/{user_id}'
-    keyboard = [[InlineKeyboardButton("View Timer", url=timer_url)]]
+    keyboard = [[InlineKeyboardButton("View Timer", web_app=WebAppInfo(url=timer_url))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = f'Break timer started ({duration_minutes} minutes).'
