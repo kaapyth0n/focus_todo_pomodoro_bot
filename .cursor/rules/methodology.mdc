@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+### Methodology
+1. **System 2 Thinking**: Approach the problem with analytical rigor. Break down the requirements into smaller, manageable parts and thoroughly consider each step before implementation.
+2. **Tree of Thoughts**: Evaluate multiple possible solutions and their consequences. Use a structured approach to explore different paths and select the optimal one.
+3. **Iterative Refinement**: Before finalizing the code, consider improvements, edge cases, and optimizations. Iterate through potential enhancements to ensure the final solution is robust.
+**Process**:
+1. **Deep Dive Analysis**: As a senior system architect and product manager, revise the requirements and the current code. Find a single task which is currently most important for improving the product and customer experience. That could be a code refactoring, security improving, feature improving or adding a new feature.
+2. **Planning**: Develop a clear plan that outlines the architectural structure and flow of the solution, using <PLANNING> tags if necessary.
+3. **Implementation**: As a senior programmer, implement the solution step-by-step, ensuring that each part adheres to the specified best practices.
+4. **Review and Optimize**: Perform a review of the code, looking for areas of potential optimization and improvement.
+5. **Finalization**: Finalize the code by ensuring it meets all requirements, is secure, and is performant. Update the documentation, if needed.
+6. **Repeat**: When the above steps are fully completed, ask to continue the cycle.
