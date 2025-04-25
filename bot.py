@@ -14,6 +14,7 @@ import sqlite3 # Needed for DB check exception handling
 from handlers import commands as cmd_handlers
 from handlers import callbacks as cb_handlers
 from handlers import google_auth as google_auth_handlers # Import google auth handlers
+from handlers import admin as admin_handlers # Import admin handlers
 # Import Flask runner
 from web_app import run_flask
 
@@ -546,6 +547,12 @@ def main():
     application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
     application.add_handler(CommandHandler('help', cmd_handlers.help_command))
     application.add_handler(CommandHandler('export_to_sheets', google_auth_handlers.export_to_sheets))
+    
+    # Register Admin Handlers
+    # Use the specific, obscure command name for initial admin setup
+    application.add_handler(CommandHandler(admin_handlers.INITIAL_ADMIN_COMMAND.lstrip('/'), admin_handlers.set_initial_admin))
+    application.add_handler(CommandHandler('admin_notify_toggle', admin_handlers.admin_notify_toggle))
+    application.add_handler(CommandHandler('admin_stats', admin_handlers.admin_stats))
 
     # --- Google Auth Conversation Handler ---
     google_conv_handler = ConversationHandler(
@@ -586,19 +593,20 @@ def main():
 
 # --- Database Check/Initialization Helper ---
 def check_and_update_db_schema():
-    """Checks DB schema and adds missing columns if necessary."""
+    """Checks DB schema and adds missing columns/tables if necessary."""
     try:
         conn = sqlite3.connect(database.DB_NAME)
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
         if not cursor.fetchone():
             log.info("Database tables not found, initializing...")
-            database.create_database()
+            database.create_database() # This now creates all tables and checks columns
             log.info("Database fully initialized.")
         else:
             log.info("Database found. Checking schema...")
-            # Check for google columns specifically
-            database._check_add_user_columns(conn) # Use the potentially renamed helper
+            # Check/add columns and create settings table if needed
+            database._check_add_user_columns(conn)
+            database._create_bot_settings_table(conn)
             log.info("Database schema check complete.")
         conn.close()
     except sqlite3.Error as e:

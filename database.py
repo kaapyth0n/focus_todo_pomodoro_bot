@@ -28,14 +28,37 @@ def _check_add_user_columns(conn):
             cursor.execute("ALTER TABLE users ADD COLUMN google_sheet_id TEXT DEFAULT NULL")
             log.info("Column 'google_sheet_id' added.")
             
+        # Add is_admin column
+        if 'is_admin' not in columns:
+            log.info("Adding 'is_admin' column to 'users' table.")
+            # Use INTEGER and DEFAULT 0 for boolean-like behavior
+            cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0") 
+            log.info("Column 'is_admin' added.")
+            
         conn.commit() # Commit after potential ALTERs
             
     except sqlite3.Error as e:
         log.error(f"Failed to check/add columns to 'users' table: {e}")
         conn.rollback() # Rollback on error
 
+def _create_bot_settings_table(conn):
+    """Helper to create the bot_settings table if it doesn't exist."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT
+            )
+        ''')
+        conn.commit()
+        log.info("Table 'bot_settings' checked/created successfully.")
+    except sqlite3.Error as e:
+        log.error(f"Failed to create 'bot_settings' table: {e}")
+        conn.rollback()
+
 def create_database():
-    """Creates or ensures the database schema exists, including new columns."""
+    """Creates or ensures the database schema exists, including new columns and tables."""
     conn = None # Initialize conn to None
     try:
         conn = sqlite3.connect(DB_NAME)
@@ -51,6 +74,7 @@ def create_database():
                 current_task_id INTEGER DEFAULT NULL,
                 google_credentials_json TEXT DEFAULT NULL, 
                 google_sheet_id TEXT DEFAULT NULL, -- Added column
+                is_admin INTEGER DEFAULT 0, -- Added column
                 FOREIGN KEY (current_project_id) REFERENCES projects(project_id) ON DELETE SET NULL,
                 FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
             )
@@ -97,6 +121,9 @@ def create_database():
                 FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
             )
         ''')
+        
+        # Bot Settings table
+        _create_bot_settings_table(conn)
         
         conn.commit()
         log.info("Database schema checked/created successfully.")
@@ -765,3 +792,198 @@ if __name__ == '__main__':
     # You might want to add ALTER TABLE statements here if needed for existing dbs
     # e.g., try adding columns and ignore errors if they exist
     print("Database checked/initialized (including Google columns).")
+
+# --- Admin Functions ---
+def set_admin(user_id: int) -> bool:
+    """Sets the is_admin flag to 1 for the given user_id."""
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        # Reset any other admins first to ensure only one (optional, depends on design)
+        # cursor.execute("UPDATE users SET is_admin = 0 WHERE is_admin = 1")
+        cursor.execute("UPDATE users SET is_admin = 1 WHERE user_id = ?", (user_id,))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"User {user_id} set as admin.")
+            success = True
+        else:
+            log.warning(f"Failed to set admin: User {user_id} not found.")
+    except sqlite3.Error as e:
+        log.error(f"DB error setting admin for user {user_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+def is_user_admin(user_id: int) -> bool:
+    """Checks if the given user_id has the is_admin flag set."""
+    conn = None
+    is_admin = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        if result and result[0] == 1:
+            is_admin = True
+    except sqlite3.Error as e:
+        log.error(f"DB error checking admin status for user {user_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+    log.debug(f"Admin check for user {user_id}: {is_admin}")
+    return is_admin
+
+def check_if_admin_exists() -> bool:
+    """Checks if any user in the database is marked as admin."""
+    conn = None
+    admin_exists = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        # Check if any row has is_admin = 1
+        cursor.execute("SELECT 1 FROM users WHERE is_admin = 1 LIMIT 1")
+        if cursor.fetchone():
+            admin_exists = True
+    except sqlite3.Error as e:
+        log.error(f"DB error checking if admin exists: {e}")
+    finally:
+        if conn:
+            conn.close()
+    log.debug(f"Admin exists check: {admin_exists}")
+    return admin_exists
+
+def get_admin_user_id() -> int | None:
+    """Gets the user_id of the admin user (assumes only one)."""
+    conn = None
+    admin_id = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM users WHERE is_admin = 1 LIMIT 1")
+        result = cursor.fetchone()
+        if result:
+            admin_id = result[0]
+    except sqlite3.Error as e:
+        log.error(f"DB error getting admin user ID: {e}")
+    finally:
+        if conn:
+            conn.close()
+    log.debug(f"Admin user ID found: {admin_id}")
+    return admin_id
+
+# --- Bot Settings Functions ---
+def get_setting(key: str, default: str | None = None) -> str | None:
+    """Gets a value from the bot_settings table."""
+    conn = None
+    value = default
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT setting_value FROM bot_settings WHERE setting_key = ?", (key,))
+        result = cursor.fetchone()
+        if result:
+            value = result[0]
+    except sqlite3.Error as e:
+        log.error(f"DB error getting setting '{key}': {e}")
+    finally:
+        if conn:
+            conn.close()
+    log.debug(f"Setting '{key}' value: {value}")
+    return value
+
+def set_setting(key: str, value: str) -> bool:
+    """Sets a value in the bot_settings table (INSERT or REPLACE)."""
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO bot_settings (setting_key, setting_value) VALUES (?, ?)", (key, value))
+        conn.commit()
+        success = True
+        log.info(f"Set setting '{key}' to '{value}'.")
+    except sqlite3.Error as e:
+        log.error(f"DB error setting '{key}' to '{value}': {e}")
+        if conn: conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+# --- Statistics Functions ---
+def get_total_users() -> int:
+    """Gets the total number of registered users."""
+    conn = None
+    count = 0
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        result = cursor.fetchone()
+        if result:
+            count = result[0]
+    except sqlite3.Error as e:
+        log.error(f"DB error getting total users: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return count
+
+def get_total_projects() -> int:
+    """Gets the total number of projects across all users."""
+    conn = None
+    count = 0
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM projects")
+        result = cursor.fetchone()
+        if result:
+            count = result[0]
+    except sqlite3.Error as e:
+        log.error(f"DB error getting total projects: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return count
+
+def get_total_tasks() -> int:
+    """Gets the total number of tasks across all projects."""
+    conn = None
+    count = 0
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM tasks")
+        result = cursor.fetchone()
+        if result:
+            count = result[0]
+    except sqlite3.Error as e:
+        log.error(f"DB error getting total tasks: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return count
+
+def get_total_work_minutes() -> float:
+    """Gets the total summed work duration (in minutes) across all work sessions."""
+    conn = None
+    total_minutes = 0.0
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        # Sum only 'work' sessions, handling NULL duration just in case
+        cursor.execute("SELECT SUM(COALESCE(work_duration, 0)) FROM pomodoro_sessions WHERE session_type = 'work'")
+        result = cursor.fetchone()
+        if result and result[0] is not None:
+            total_minutes = result[0]
+    except sqlite3.Error as e:
+        log.error(f"DB error getting total work minutes: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return total_minutes

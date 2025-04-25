@@ -6,6 +6,7 @@ from config import timer_states, DOMAIN_URL
 import logging
 import sqlite3
 from . import google_auth as google_auth_handlers # Import the module itself
+from . import admin as admin_handlers # Import admin handlers
 
 log = logging.getLogger(__name__)
 
@@ -27,11 +28,24 @@ REPLY_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a welcome message, adds user to database, and shows keyboard."""
+    """Sends a welcome message, adds user to database, and shows keyboard, notifies admin if new."""
     user = update.message.from_user
+    is_new_user = False # Flag to track if user was added
     log.info(f"Received /start command from user {user.id} ('{user.username or user.first_name}')")
     try:
+        existing_user = database.get_google_credentials(user.id) # Re-using this check temporarily
+        if not existing_user: 
+            is_new_user = True # Assume new if no google creds, needs better check
+            
         database.add_user(user.id, user.first_name, user.last_name)
+        
+        # Notify admin if it seems like a new user
+        if is_new_user:
+            await admin_handlers.send_admin_notification(
+                context, 
+                f"New user started: {user.first_name} (ID: {user.id}, Username: @{user.username or 'N/A'})"
+            )
+
         # Reset current project/task if not found (good practice on start)
         current_proj = database.get_current_project(user.id)
         current_task = database.get_current_task(user.id)
@@ -62,8 +76,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Project Management Commands ---
 async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Creates a new project."""
-    user_id = update.message.from_user.id
+    """Creates a new project and notifies admin."""
+    user = update.message.from_user # Get user object
+    user_id = user.id
     project_name = ' '.join(context.args)
     log.debug(f"User {user_id} attempting to create project '{project_name}'")
     if not project_name:
@@ -81,6 +96,11 @@ async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if added_id:
             log.info(f"User {user_id} created project '{project_name}' (ID: {added_id})")
             await update.message.reply_text(f'Project "{project_name}" created! Select it with /select_project or /list_projects.')
+            # Notify admin
+            await admin_handlers.send_admin_notification(
+                context, 
+                f"Project created by {user.first_name} ({user_id}): '{project_name}' (ID: {added_id})"
+            )
         else:
             log.warning(f"Failed DB call to create project '{project_name}' for user {user_id}")
             await update.message.reply_text("Failed to create project due to a database error.")
@@ -178,8 +198,9 @@ async def delete_project_command(update: Update, context: ContextTypes.DEFAULT_T
 
 # --- Task Management Commands ---
 async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Adds a task to the currently selected project."""
-    user_id = update.message.from_user.id
+    """Adds a task to the currently selected project and notifies admin."""
+    user = update.message.from_user # Get user object
+    user_id = user.id
     task_name = ' '.join(context.args)
     log.debug(f"User {user_id} attempting to create task '{task_name}'")
     if not task_name:
@@ -203,6 +224,11 @@ async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if added_id and project_name:
             log.info(f"User {user_id} created task '{task_name}' (ID: {added_id}) in project {current_project_id}")
             await update.message.reply_text(f'Task "{task_name}" added to project "{project_name}"!')
+            # Notify admin
+            await admin_handlers.send_admin_notification(
+                context, 
+                f"Task created by {user.first_name} ({user_id}) in project '{project_name}': '{task_name}' (ID: {added_id})"
+            )
         elif added_id:
              log.warning(f"Failed DB call to create task '{task_name}' for user {user_id}")
              await update.message.reply_text(f'Task "{task_name}" added!')
