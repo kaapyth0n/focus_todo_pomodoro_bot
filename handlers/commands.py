@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 import database
 from datetime import datetime, timedelta
@@ -8,15 +8,50 @@ import sqlite3
 
 log = logging.getLogger(__name__)
 
+# --- Reply Keyboard Definition ---
+
+BTN_START_WORK = "🚀 Start Work"
+BTN_PAUSE = "⏸️ Pause"
+BTN_RESUME = "▶️ Resume"
+BTN_STOP = "⏹️ Stop"
+BTN_REPORT = "📊 Report"
+BTN_BREAK_5 = "☕️ Break (5m)"
+
+MAIN_KEYBOARD = [
+    [BTN_START_WORK],               # Row 1
+    [BTN_PAUSE, BTN_RESUME, BTN_STOP], # Row 2
+    [BTN_REPORT, BTN_BREAK_5],      # Row 3
+]
+REPLY_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a welcome message and adds user to database."""
+    """Sends a welcome message, adds user to database, and shows keyboard."""
     user = update.message.from_user
     log.info(f"Received /start command from user {user.id} ('{user.username or user.first_name}')")
     try:
         database.add_user(user.id, user.first_name, user.last_name)
-        if database.get_current_project(user.id) is None:
-            database.clear_current_project(user.id)
-        await update.message.reply_text('Welcome to your Focus To-Do List Bot! Use /create_project or /help to get started.')
+        # Reset current project/task if not found (good practice on start)
+        current_proj = database.get_current_project(user.id)
+        current_task = database.get_current_task(user.id)
+        if current_proj:
+             proj_name = database.get_project_name(current_proj)
+             if not proj_name:
+                 log.warning(f"User {user.id}'s current project {current_proj} not found. Clearing.")
+                 database.clear_current_project(user.id)
+             elif current_task:
+                 task_name = database.get_task_name(current_task)
+                 if not task_name:
+                     log.warning(f"User {user.id}'s current task {current_task} not found. Clearing.")
+                     database.clear_current_task(user.id)
+        else:
+            database.clear_current_project(user.id) # Clears task too
+
+        # Send welcome message with the reply keyboard
+        await update.message.reply_text(
+            'Welcome to your Focus To-Do List Bot! Use the menu or keyboard below.', 
+            reply_markup=REPLY_MARKUP
+        )
     except sqlite3.Error as e:
         log.error(f"DB Error in start for user {user.id}: {e}")
         await update.message.reply_text("An error occurred connecting to the database. Please try again later.")
@@ -770,3 +805,49 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(help_text)
     except Exception as e:
          log.error(f"Failed to send help message: {e}") 
+
+# --- Reply Keyboard Button Handlers ---
+
+async def handle_start_work_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Start Work' button press by calling start_timer."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_START_WORK}")
+    await start_timer(update, context)
+
+async def handle_pause_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Pause' button press by calling pause_timer."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_PAUSE}")
+    await pause_timer(update, context)
+
+async def handle_resume_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Resume' button press by calling resume_timer."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_RESUME}")
+    await resume_timer(update, context)
+
+async def handle_stop_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Stop' button press by calling stop_timer."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_STOP}")
+    await stop_timer(update, context)
+
+async def handle_report_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Report' button press by calling report_command."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_REPORT}")
+    # Clear args for report_command when triggered by button
+    context.args = []
+    await report_command(update, context)
+
+async def handle_break_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Break (5m)' button press by calling start_break_timer."""
+    user_id = update.message.from_user.id
+    log.debug(f"User {user_id} pressed {BTN_BREAK_5}")
+    
+    # Check if another timer is active before starting break
+    if user_id in timer_states and timer_states[user_id]['state'] != 'stopped':
+        log.warning(f"User {user_id} pressed break button while timer active.")
+        await update.message.reply_text('Another timer is already active. Please /stop_timer first.')
+        return
+
+    # Start the break timer (using the internal function directly)
+    await start_break_timer(context, user_id, 5) # 5 minute break
+
+# --- Help Command --- (ensure it's the last command)
+# ... existing help_command ... 

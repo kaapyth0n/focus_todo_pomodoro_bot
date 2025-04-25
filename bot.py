@@ -1,5 +1,5 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram import Update, ReplyKeyboardMarkup, BotCommand
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 import database
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -493,9 +493,38 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(f"Which task in '{project_name}' do you want to delete? (This action is irreversible!)", reply_markup=reply_markup)
 
+async def setup_bot_commands(application: Application):
+    """Sets the bot commands menu."""
+    commands = [
+        BotCommand("start", "Start the bot & show keyboard"),
+        BotCommand("help", "Show help message"),
+        BotCommand("list_projects", "List/select projects"),
+        BotCommand("list_tasks", "List/select tasks in current project"),
+        BotCommand("start_timer", "Start work timer (default 25min)"),
+        BotCommand("pause_timer", "Pause current timer"),
+        BotCommand("resume_timer", "Resume paused timer"),
+        BotCommand("stop_timer", "Stop current timer & log"),
+        BotCommand("report", "Show report options"),
+    ]
+    await application.bot.set_my_commands(commands)
+    log.info("Bot commands menu set.")
+
+async def post_init(application: Application):
+    """Runs after the application is initialized."""
+    await setup_bot_commands(application)
+
 def main():
     log.info("Initializing Pomodoro Bot...")
-    application = Application.builder().token(TOKEN).build()
+    # Set post_init function to run after initialization
+    application = Application.builder().token(TOKEN).post_init(post_init).build()
+
+    # Define reply keyboard button texts (ensure these match the ones in handlers/commands.py)
+    BTN_START_WORK = "🚀 Start Work"
+    BTN_PAUSE = "⏸️ Pause"
+    BTN_RESUME = "▶️ Resume"
+    BTN_STOP = "⏹️ Stop"
+    BTN_REPORT = "📊 Report"
+    BTN_BREAK_5 = "☕️ Break (5m)"
 
     # Register command handlers from handlers.commands
     application.add_handler(CommandHandler('start', cmd_handlers.start))
@@ -514,6 +543,14 @@ def main():
     application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
     application.add_handler(CommandHandler('help', cmd_handlers.help_command))
 
+    # Register reply keyboard button handlers
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_START_WORK}$'), cmd_handlers.handle_start_work_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_PAUSE}$'), cmd_handlers.handle_pause_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_RESUME}$'), cmd_handlers.handle_resume_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_STOP}$'), cmd_handlers.handle_stop_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_REPORT}$'), cmd_handlers.handle_report_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_BREAK_5}$'), cmd_handlers.handle_break_button)) # Add handler for break button
+
     # Register callback query handler from handlers.callbacks
     application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
 
@@ -531,10 +568,12 @@ if __name__ == '__main__':
     # Configure logging early
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO
+        level=logging.INFO # Changed to INFO for less noise, DEBUG can be enabled if needed
     )
     # Optionally set higher level for noisy libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telegram.vendor.ptb_urllib3.urllib3").setLevel(logging.WARNING) # Also quiet this one
+    logging.getLogger("apscheduler").setLevel(logging.WARNING) # Quiet APScheduler unless needed
 
     # Initialize database on startup if it doesn't exist
     # This might be better placed in a separate setup script or check
