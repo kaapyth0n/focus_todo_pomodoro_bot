@@ -11,35 +11,33 @@ DB_NAME = 'focus_pomodoro.db'
 # For now, just get logger by name
 log = logging.getLogger(__name__)
 
-def _check_add_user_columns(conn):
-    """Helper to add missing tracked columns (e.g., google related) to the users table."""
+# Status Constants
+STATUS_ACTIVE = 0
+STATUS_DONE = 1
+
+def _check_add_columns(conn, table_name: str, columns_to_add: dict):
+    """Generic helper to add missing columns to a table."""
     try:
         cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(users)")
-        columns = [column[1] for column in cursor.fetchall()]
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing_columns = [column[1] for column in cursor.fetchall()]
         
-        if 'google_credentials_json' not in columns:
-            log.info("Adding 'google_credentials_json' column to 'users' table.")
-            cursor.execute("ALTER TABLE users ADD COLUMN google_credentials_json TEXT DEFAULT NULL")
-            log.info("Column 'google_credentials_json' added.")
-            
-        if 'google_sheet_id' not in columns:
-            log.info("Adding 'google_sheet_id' column to 'users' table.")
-            cursor.execute("ALTER TABLE users ADD COLUMN google_sheet_id TEXT DEFAULT NULL")
-            log.info("Column 'google_sheet_id' added.")
-            
-        # Add is_admin column
-        if 'is_admin' not in columns:
-            log.info("Adding 'is_admin' column to 'users' table.")
-            # Use INTEGER and DEFAULT 0 for boolean-like behavior
-            cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0") 
-            log.info("Column 'is_admin' added.")
-            
-        conn.commit() # Commit after potential ALTERs
+        added_any = False
+        for col_name, col_definition in columns_to_add.items():
+            if col_name not in existing_columns:
+                log.info(f"Adding column '{col_name}' to table '{table_name}'.")
+                cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_definition}")
+                log.info(f"Column '{col_name}' added.")
+                added_any = True
+            else:
+                log.debug(f"Column '{col_name}' already exists in table '{table_name}'.")
+                
+        if added_any:
+            conn.commit()
             
     except sqlite3.Error as e:
-        log.error(f"Failed to check/add columns to 'users' table: {e}")
-        conn.rollback() # Rollback on error
+        log.error(f"Failed to check/add columns to '{table_name}' table: {e}")
+        conn.rollback() 
 
 def _create_bot_settings_table(conn):
     """Helper to create the bot_settings table if it doesn't exist."""
@@ -82,24 +80,30 @@ def create_database():
         conn.commit() # Commit table creation before altering
 
         # Check and add missing columns
-        _check_add_user_columns(conn)
+        _check_add_columns(conn, 'users', { 
+            'google_credentials_json': 'TEXT DEFAULT NULL', 
+            'google_sheet_id': 'TEXT DEFAULT NULL', 
+            'is_admin': 'INTEGER DEFAULT 0' 
+        })
         
         # Projects table
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS projects (
                 project_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 project_name TEXT,
+                status INTEGER DEFAULT {STATUS_ACTIVE}, -- Added status
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
         
         # Tasks table
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS tasks (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER,
                 task_name TEXT,
+                status INTEGER DEFAULT {STATUS_ACTIVE}, -- Added status
                 FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
             )
         ''')
@@ -252,14 +256,15 @@ def clear_current_task(user_id):
             conn.close()
 
 def add_project(user_id, project_name):
-    """Adds a new project for a user."""
+    """Adds a new active project for a user."""
     conn = None
     project_id = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        cursor.execute('INSERT INTO projects (user_id, project_name) VALUES (?, ?)', 
-                       (user_id, project_name))
+        # Insert with default status (active)
+        cursor.execute('INSERT INTO projects (user_id, project_name, status) VALUES (?, ?, ?)', 
+                       (user_id, project_name, STATUS_ACTIVE))
         project_id = cursor.lastrowid
         conn.commit()
         log.info(f"Added project '{project_name}' ({project_id}) for user {user_id}.")
@@ -271,13 +276,14 @@ def add_project(user_id, project_name):
             conn.close()
     return project_id
 
-def get_projects(user_id):
-    """Gets all projects for a user."""
+def get_projects(user_id, status: int = STATUS_ACTIVE):
+    """Gets projects for a user, filtered by status (default: active)."""
     conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        cursor.execute('SELECT project_id, project_name FROM projects WHERE user_id = ?', (user_id,))
+        cursor.execute('SELECT project_id, project_name FROM projects WHERE user_id = ? AND status = ?', 
+                       (user_id, status))
         projects = cursor.fetchall()
         return projects
     except sqlite3.Error as e:
@@ -330,14 +336,15 @@ def delete_project(project_id):
     return deleted
 
 def add_task(project_id, task_name):
-    """Adds a task to a specific project."""
+    """Adds a new active task to a specific project."""
     conn = None
     task_id = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        cursor.execute('INSERT INTO tasks (project_id, task_name) VALUES (?, ?)', 
-                       (project_id, task_name))
+        # Insert with default status (active)
+        cursor.execute('INSERT INTO tasks (project_id, task_name, status) VALUES (?, ?, ?)', 
+                       (project_id, task_name, STATUS_ACTIVE))
         task_id = cursor.lastrowid
         conn.commit()
         log.info(f"Added task '{task_name}' ({task_id}) to project {project_id}.")
@@ -349,13 +356,14 @@ def add_task(project_id, task_name):
             conn.close()
     return task_id
 
-def get_tasks(project_id):
-    """Gets all tasks for a specific project."""
+def get_tasks(project_id, status: int = STATUS_ACTIVE):
+    """Gets tasks for a specific project, filtered by status (default: active)."""
     conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        cursor.execute('SELECT task_id, task_name FROM tasks WHERE project_id = ?', (project_id,))
+        cursor.execute('SELECT task_id, task_name FROM tasks WHERE project_id = ? AND status = ?', 
+                       (project_id, status))
         tasks = cursor.fetchall()
         return tasks
     except sqlite3.Error as e:
@@ -987,3 +995,87 @@ def get_total_work_minutes() -> float:
         if conn:
             conn.close()
     return total_minutes
+
+# --- Project Management ---
+def mark_project_status(project_id: int, status: int) -> bool:
+    """Updates the status of a project."""
+    conn = None
+    success = False
+    if status not in [STATUS_ACTIVE, STATUS_DONE]:
+        log.warning(f"Invalid status ({status}) provided for project {project_id}.")
+        return False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE projects SET status = ? WHERE project_id = ?", (status, project_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"Updated status for project {project_id} to {status}.")
+            success = True
+        else:
+            log.warning(f"Project {project_id} not found for status update.")
+    except sqlite3.Error as e:
+        log.error(f"DB error updating status for project {project_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+def get_project_status(project_id: int) -> int | None:
+    """Gets the status of a specific project."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute('SELECT status FROM projects WHERE project_id = ?', (project_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except sqlite3.Error as e:
+        log.error(f"Database error getting status for project {project_id}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+# --- Task Management ---
+def mark_task_status(task_id: int, status: int) -> bool:
+    """Updates the status of a task."""
+    conn = None
+    success = False
+    if status not in [STATUS_ACTIVE, STATUS_DONE]:
+        log.warning(f"Invalid status ({status}) provided for task {task_id}.")
+        return False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE tasks SET status = ? WHERE task_id = ?", (status, task_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"Updated status for task {task_id} to {status}.")
+            success = True
+        else:
+            log.warning(f"Task {task_id} not found for status update.")
+    except sqlite3.Error as e:
+        log.error(f"DB error updating status for task {task_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+def get_task_status(task_id: int) -> int | None:
+    """Gets the status of a specific task."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute('SELECT status FROM tasks WHERE task_id = ?', (task_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except sqlite3.Error as e:
+        log.error(f"Database error getting status for task {task_id}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()

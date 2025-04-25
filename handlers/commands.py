@@ -413,14 +413,32 @@ async def start_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         project_id = database.get_current_project(user_id)
         task_id = database.get_current_task(user_id)
         if not project_id or not task_id:
-            await update.message.reply_text('Please select a project and task first.')
+            await update.message.reply_text('Please select an active project and task first.')
             return
+            
+        # --- Check Project and Task Status --- 
+        project_status = database.get_project_status(project_id)
+        task_status = database.get_task_status(task_id)
+        
+        if project_status != database.STATUS_ACTIVE:
+            log.warning(f"User {user_id} tried to start timer on inactive/done project {project_id}.")
+            await update.message.reply_text("The selected project is marked as done/archived. Please select an active project.")
+            database.clear_current_project(user_id) # Clear selection if inactive
+            return
+            
+        if task_status != database.STATUS_ACTIVE:
+            log.warning(f"User {user_id} tried to start timer on inactive/done task {task_id}.")
+            await update.message.reply_text("The selected task is marked as done/archived. Please select an active task.")
+            database.clear_current_task(user_id) # Clear selection if inactive
+            return
+        # --- End Status Check --- 
             
         project_name = database.get_project_name(project_id)
         task_name = database.get_task_name(task_id)
         
         if not project_name or not task_name:
-            await update.message.reply_text(f'Error: The selected project/task no longer exists.')
+            # This check might be redundant now with status check, but keep as fallback
+            await update.message.reply_text(f'Error: The selected project/task info could not be retrieved.')
             database.clear_current_task(user_id)
             database.clear_current_project(user_id)
             return
