@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, send_from_directory
 import os
 from datetime import datetime, timezone
 from config import timer_states, DOMAIN_URL, FLASK_PORT
@@ -13,6 +13,23 @@ log.setLevel(logging.WARNING) # Reduce werkzeug noise
 
 # Get logger for this module
 web_log = logging.getLogger(__name__)
+
+# --- Route to serve the audio file ---
+# Assuming the mp3 is in the root directory alongside bot.py
+@app.route('/audio/<path:filename>')
+def serve_audio(filename):
+    web_log.debug(f"Request received to serve audio file: {filename}")
+    # Use send_from_directory for security, specifying the root directory
+    # Get the absolute path of the project directory
+    root_dir = os.path.dirname(os.path.abspath(__file__)) 
+    try:
+        return send_from_directory(root_dir, filename, as_attachment=False)
+    except FileNotFoundError:
+        web_log.error(f"Audio file not found: {filename} in {root_dir}")
+        return "Audio file not found", 404
+    except Exception as e:
+        web_log.error(f"Error serving audio file {filename}: {e}")
+        return "Error serving file", 500
 
 @app.route('/timer/<int:user_id>')
 def timer_page(user_id):
@@ -69,6 +86,8 @@ def timer_page(user_id):
                         body.error { background-color: #fce4ec; } /* Light Pink */
                         body.loading { background-color: #f7f9fc; } /* Default background */
 
+                        .audio-control { margin-top: 20px; }
+                        button { padding: 5px 10px; cursor: pointer; } 
                     </style>
                 </head>
                 <body id="body-status" class="loading">
@@ -76,6 +95,17 @@ def timer_page(user_id):
                         <h1 id="timer-title">Loading Timer...</h1>
                         <div id="status" class="status loading">Loading...</div>
                         <div id="countdown" class="timer">--:--</div>
+                        
+                        <!-- Audio Player -->
+                        <audio id="background-audio" loop preload="auto">
+                            <!-- Ensure the filename matches exactly -->
+                            <source src="/audio/clock-ticking-sound-effect-240503.mp3" type="audio/mpeg">
+                            Your browser does not support the audio element.
+                        </audio>
+                        <div class="audio-control">
+                            <button id="mute-button">🔇 Mute</button>
+                        </div>
+                        
                     </div>
                     <script>
                         const userId = {{ user_id }};
@@ -83,6 +113,8 @@ def timer_page(user_id):
                         const countdownElem = document.getElementById('countdown');
                         const titleElem = document.getElementById('timer-title');
                         const bodyElem = document.getElementById('body-status');
+                        const audioElement = document.getElementById('background-audio');
+                        const muteButton = document.getElementById('mute-button');
 
                         let localRemainingSeconds = 0;
                         let currentState = 'loading'; // loading, running, paused, stopped, finished, error
@@ -109,6 +141,44 @@ def timer_page(user_id):
                             const seconds = Math.floor(totalSeconds % 60);
                             return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                         }
+
+                        // --- Audio Control --- 
+                        function playAudio() {
+                            if (audioElement.paused && !audioElement.muted) {
+                                web_log.debug('Attempting to play audio...');
+                                const playPromise = audioElement.play();
+                                if (playPromise !== undefined) {
+                                    playPromise.then(_ => {
+                                        web_log.debug('Audio playback started.');
+                                    }).catch(error => {
+                                        web_log.error('Audio playback failed:', error);
+                                        // Autoplay might be blocked, user may need interaction
+                                        // We could show a "Click to Play" button here if needed
+                                    });
+                                }
+                            } else {
+                                web_log.debug('Audio not playing (already playing, muted, or no element).');
+                            }
+                        }
+                        
+                        function pauseAudio() {
+                            if (!audioElement.paused) {
+                                web_log.debug('Pausing audio.');
+                                audioElement.pause();
+                                audioElement.currentTime = 0; // Reset to start
+                            }
+                        }
+                        
+                        muteButton.onclick = () => {
+                            audioElement.muted = !audioElement.muted;
+                            muteButton.textContent = audioElement.muted ? '🔈 Unmute' : '🔇 Mute';
+                            web_log.debug(`Audio muted state: ${audioElement.muted}`);
+                            // If unmuting while timer is running, try playing
+                            if (!audioElement.muted && currentState === 'running' && currentSessionType === 'work') {
+                                playAudio();
+                            }
+                        };
+                        // --- End Audio Control ---
 
                         function updateDisplay() {
                             // Update countdown text
@@ -199,6 +269,14 @@ def timer_page(user_id):
                             }
 
                             updateDisplay();
+
+                            // --- Trigger Audio Based on State --- 
+                            if (currentState === 'running' && currentSessionType === 'work') {
+                                playAudio();
+                            } else {
+                                pauseAudio(); // Pause for break, pause, stop, finish, error, loading
+                            }
+                            // --- End Trigger Audio ---
 
                             if (currentState === 'running') {
                                 if (localIntervalId === null) { // Start local countdown if not already running
