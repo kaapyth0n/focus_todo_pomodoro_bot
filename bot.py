@@ -8,10 +8,12 @@ import threading
 import os
 from config import TOKEN, DOMAIN_URL
 import logging
+import sqlite3 # Needed for DB check exception handling
 
 # Import handlers
 from handlers import commands as cmd_handlers
 from handlers import callbacks as cb_handlers
+from handlers import google_auth as google_auth_handlers # Import google auth handlers
 # Import Flask runner
 from web_app import run_flask
 
@@ -515,7 +517,6 @@ async def post_init(application: Application):
 
 def main():
     log.info("Initializing Pomodoro Bot...")
-    # Set post_init function to run after initialization
     application = Application.builder().token(TOKEN).post_init(post_init).build()
 
     # Define reply keyboard button texts (ensure these match the ones in handlers/commands.py)
@@ -543,6 +544,10 @@ def main():
     application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
     application.add_handler(CommandHandler('help', cmd_handlers.help_command))
 
+    # Register Google Auth handlers
+    application.add_handler(CommandHandler('connect_google', google_auth_handlers.connect_google))
+    application.add_handler(CommandHandler('oauth_code', google_auth_handlers.handle_oauth_code))
+
     # Register reply keyboard button handlers
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_START_WORK}$'), cmd_handlers.handle_start_work_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_PAUSE}$'), cmd_handlers.handle_pause_button))
@@ -564,33 +569,43 @@ def main():
     log.info("Telegram bot polling started.")
     application.run_polling()
 
-if __name__ == '__main__':
-    # Configure logging early
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO # Changed to INFO for less noise, DEBUG can be enabled if needed
-    )
-    # Optionally set higher level for noisy libraries
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("telegram.vendor.ptb_urllib3.urllib3").setLevel(logging.WARNING) # Also quiet this one
-    logging.getLogger("apscheduler").setLevel(logging.WARNING) # Quiet APScheduler unless needed
-
-    # Initialize database on startup if it doesn't exist
-    # This might be better placed in a separate setup script or check
+# --- Database Check/Initialization Helper ---
+def check_and_update_db_schema():
+    """Checks DB schema and adds missing columns if necessary."""
     try:
-        conn = database.sqlite3.connect(database.DB_NAME)
-        # Simple check if tables exist, otherwise create them
+        conn = sqlite3.connect(database.DB_NAME)
         cursor = conn.cursor()
+        # Check if users table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
         if not cursor.fetchone():
             log.info("Database tables not found, initializing...")
             database.create_database()
+            log.info("Database fully initialized.")
         else:
-            log.info("Database found and seems initialized.")
+            log.info("Database found. Checking schema...")
+            # Check for google_credentials_json column specifically
+            database._add_google_credentials_column(conn) # Use the helper from database.py
+            log.info("Database schema check complete.")
         conn.close()
+    except sqlite3.Error as e:
+        log.critical(f"CRITICAL: Error checking/updating database schema: {e}", exc_info=True)
+        exit(1) # Exit if DB check fails critically
     except Exception as e:
-        log.critical(f"CRITICAL: Error checking/initializing database: {e}", exc_info=True)
-        # Decide if you want to exit or continue without DB
+        log.critical(f"CRITICAL: Unexpected error during DB schema check: {e}", exc_info=True)
         exit(1)
+
+if __name__ == '__main__':
+    # Configure logging early
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telegram.vendor.ptb_urllib3.urllib3").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR) # Quiet Google discovery cache
+
+    # Check/Initialize/Update database schema before starting bot
+    check_and_update_db_schema()
 
     main()

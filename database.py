@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime
 import logging # Add logging
 import traceback
+import json # Needed for credentials handling
 
 DB_NAME = 'focus_pomodoro.db'
 
@@ -10,14 +11,32 @@ DB_NAME = 'focus_pomodoro.db'
 # For now, just get logger by name
 log = logging.getLogger(__name__)
 
+def _add_google_credentials_column(conn):
+    """Helper to add the google_credentials_json column if it doesn't exist."""
+    try:
+        cursor = conn.cursor()
+        # Check if the column exists
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'google_credentials_json' not in columns:
+            log.info("Adding 'google_credentials_json' column to 'users' table.")
+            cursor.execute("ALTER TABLE users ADD COLUMN google_credentials_json TEXT DEFAULT NULL")
+            conn.commit()
+            log.info("Column 'google_credentials_json' added successfully.")
+        else:
+            log.debug("Column 'google_credentials_json' already exists.")
+    except sqlite3.Error as e:
+        log.error(f"Failed to check/add 'google_credentials_json' column: {e}")
+        # Depending on severity, you might want to raise this
+
 def create_database():
-    """Creates or ensures the database schema exists."""
+    """Creates or ensures the database schema exists, including new columns."""
     conn = None # Initialize conn to None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
-        # Users table - Add current_project_id and current_task_id
+        # Users table - Add google_credentials_json
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -25,10 +44,15 @@ def create_database():
                 last_name TEXT,
                 current_project_id INTEGER DEFAULT NULL, 
                 current_task_id INTEGER DEFAULT NULL,
+                google_credentials_json TEXT DEFAULT NULL, -- Added column
                 FOREIGN KEY (current_project_id) REFERENCES projects(project_id) ON DELETE SET NULL,
                 FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
             )
         ''')
+        conn.commit() # Commit table creation before altering
+
+        # Add the column if the table was just created or already existed but lacked the column
+        _add_google_credentials_column(conn)
         
         # Projects table
         cursor.execute('''
@@ -71,9 +95,8 @@ def create_database():
         conn.commit()
         log.info("Database schema checked/created successfully.")
     except sqlite3.Error as e:
-        log.error(f"Database error during schema creation: {e}")
+        log.error(f"Database error during schema creation/update: {e}")
         # Optionally raise the error again if it's critical
-        # raise e 
     finally:
         if conn:
             conn.close()
@@ -600,6 +623,49 @@ def get_last_session_details(user_id: int, task_id: int) -> tuple | None:
         if conn:
             conn.close()
 
+# --- Google Credentials --- 
+def store_google_credentials(user_id, credentials_json: str):
+    """Stores the user's Google OAuth credentials (as JSON string)."""
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET google_credentials_json = ? WHERE user_id = ?", (credentials_json, user_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"Stored Google credentials for user {user_id}.")
+            success = True
+        else:
+             log.warning(f"Attempted to store Google credentials for non-existent user {user_id}.")
+    except sqlite3.Error as e:
+        log.error(f"Database error storing Google credentials for user {user_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+def get_google_credentials(user_id):
+    """Retrieves the user's Google OAuth credentials JSON string."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT google_credentials_json FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        if result and result[0]:
+             log.debug(f"Retrieved Google credentials for user {user_id}.")
+             return result[0] # Return the JSON string
+        else:
+            log.debug(f"No Google credentials found for user {user_id}.")
+            return None
+    except sqlite3.Error as e:
+        log.error(f"Database error retrieving Google credentials for user {user_id}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
 # --- Initialization ---
 if __name__ == '__main__':
     # Ensure the logger is configured if running standalone
@@ -607,4 +673,4 @@ if __name__ == '__main__':
     create_database()
     # You might want to add ALTER TABLE statements here if needed for existing dbs
     # e.g., try adding columns and ignore errors if they exist
-    print("Database checked/initialized.")
+    print("Database checked/initialized (including Google credentials column).")
