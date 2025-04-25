@@ -15,21 +15,36 @@ log = logging.getLogger(__name__)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    # Acknowledge the button press immediately
-    try:
-        await query.answer()
-    except Exception as e:
-        log.warning(f"Failed to answer callback query {query.id}: {e}")
+    await query.answer() # Acknowledge immediately
 
     data = query.data
     user_id = query.from_user.id
     log.debug(f"Callback received from user {user_id}: {data}")
 
     try:
-        # --- No-op Callbacks (Just acknowledge) ---
-        if data.startswith("noop_"):
-            log.debug(f"Handled no-op callback: {data}")
-            return # Nothing further to do
+        # --- Specific No-op Callbacks with Instructions --- 
+        if data == "noop_create_project":
+            log.debug(f"Handling create project instruction callback: {data}")
+            await query.edit_message_text(
+                text="Use the `/create_project \"Project Name\"` command to add your first project.",
+                reply_markup=None # Remove buttons
+            )
+            return
+        elif data == "noop_create_task":
+            log.debug(f"Handling create task instruction callback: {data}")
+            current_project_id = database.get_current_project(user_id)
+            project_name = database.get_project_name(current_project_id) if current_project_id else "the current project"
+            await query.edit_message_text(
+                text=f"Use the `/create_task \"Task Name\"` command to add a task to '{project_name}'.",
+                reply_markup=None # Remove buttons
+            )
+            return
+            
+        # --- Generic No-op Callbacks (e.g., for archived item names) ---
+        elif data.startswith("noop_"):
+            log.debug(f"Handled generic no-op callback: {data}")
+            # Just acknowledge, don't change the message or remove buttons
+            return 
 
         # --- Report Callbacks ---
         if data == "report_daily":
