@@ -56,13 +56,13 @@ def _create_bot_settings_table(conn):
         conn.rollback()
 
 def create_database():
-    """Creates or ensures the database schema exists, including new columns and tables."""
-    conn = None # Initialize conn to None
+    """Creates or ensures the database schema exists, running all operations in one transaction."""
+    conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
-        # Users table - Add google_credentials_json and google_sheet_id
+        # --- Users Table --- 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -77,8 +77,7 @@ def create_database():
                 FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
             )
         ''')
-        conn.commit() # Commit table creation before altering
-
+        
         # Check and add missing columns
         _check_add_columns(conn, 'users', { 
             'google_credentials_json': 'TEXT DEFAULT NULL', 
@@ -86,7 +85,7 @@ def create_database():
             'is_admin': 'INTEGER DEFAULT 0' 
         })
         
-        # Projects table
+        # --- Projects Table --- 
         cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS projects (
                 project_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +96,10 @@ def create_database():
             )
         ''')
         
-        # Tasks table
+        # Check and add missing columns
+        _check_add_columns(conn, 'projects', {'status': f'INTEGER DEFAULT {STATUS_ACTIVE}'})
+        
+        # --- Tasks Table --- 
         cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS tasks (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,7 +110,10 @@ def create_database():
             )
         ''')
         
-        # Pomodoro sessions table - Add session_type
+        # Check and add missing columns
+        _check_add_columns(conn, 'tasks', {'status': f'INTEGER DEFAULT {STATUS_ACTIVE}'})
+        
+        # --- Pomodoro Sessions Table --- 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pomodoro_sessions (
                 session_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,14 +131,15 @@ def create_database():
             )
         ''')
         
-        # Bot Settings table
+        # --- Bot Settings Table --- 
         _create_bot_settings_table(conn)
         
-        conn.commit()
-        log.info("Database schema checked/created successfully.")
+        # Final commit for all CREATE TABLE IF NOT EXISTS operations
+        conn.commit() 
+        log.info("Database schema checked/created/updated successfully.")
     except sqlite3.Error as e:
-        log.error(f"Database error during schema creation/update: {e}")
-        # Optionally raise the error again if it's critical
+        log.error(f"Database error during schema creation/update: {e}", exc_info=True)
+        if conn: conn.rollback() # Rollback on error
     finally:
         if conn:
             conn.close()

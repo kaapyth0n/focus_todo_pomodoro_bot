@@ -593,22 +593,14 @@ def main():
 
 # --- Database Check/Initialization Helper ---
 def check_and_update_db_schema():
-    """Checks DB schema and adds missing columns/tables if necessary."""
+    """Ensures DB schema exists and is up-to-date."""
     try:
-        conn = sqlite3.connect(database.DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
-        if not cursor.fetchone():
-            log.info("Database tables not found, initializing...")
-            database.create_database() # This now creates all tables and checks columns
-            log.info("Database fully initialized.")
-        else:
-            log.info("Database found. Checking schema...")
-            # Check/add columns and create settings table if needed
-            database._check_add_user_columns(conn)
-            database._create_bot_settings_table(conn)
-            log.info("Database schema check complete.")
-        conn.close()
+        # Call create_database on every startup.
+        # It handles both initial creation and checking/adding missing columns/tables.
+        log.info("Checking/Updating database schema...")
+        database.create_database()
+        log.info("Database schema check/update complete.")
+        
     except sqlite3.Error as e:
         log.critical(f"CRITICAL: Error checking/updating database schema: {e}", exc_info=True)
         exit(1)

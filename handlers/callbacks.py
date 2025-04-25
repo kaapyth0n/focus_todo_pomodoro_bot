@@ -1,7 +1,9 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database
+from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
 from config import timer_states # timer_states might be needed if we check active timers here
+from . import commands as cmd_handlers # Import commands module to call list handlers
 from .commands import report_daily, report_weekly, report_monthly, start_break_timer # Import report functions and break starter
 import logging # Added previously
 import sqlite3 # Need this for the exception type
@@ -24,6 +26,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.debug(f"Callback received from user {user_id}: {data}")
 
     try:
+        # --- No-op Callbacks (Just acknowledge) ---
+        if data.startswith("noop_"):
+            log.debug(f"Handled no-op callback: {data}")
+            return # Nothing further to do
+
         # --- Report Callbacks ---
         if data == "report_daily":
             log.info(f"User {user_id} triggered daily report via callback.")
@@ -222,6 +229,144 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(text="An unexpected error occurred while starting the break.")
                 await query.answer("An unexpected error occurred.", show_alert=True)
 
+        # --- Done/Archive Callbacks --- 
+        elif data.startswith("mark_project_done:"):
+            try:
+                project_id = int(data.split(":")[1])
+                project_name = database.get_project_name(project_id) or "Unknown Project"
+                success = database.mark_project_status(project_id, STATUS_DONE)
+                if success:
+                    log.info(f"User {user_id} marked project {project_id} ('{project_name}') as done.")
+                    # Refresh the list by calling the list command handler
+                    fake_update = Update(0, message=query.message)
+                    fake_update._effective_user = query.from_user
+                    await cmd_handlers.list_projects(fake_update, context)
+                    await query.answer(f"Project '{project_name}' marked done & archived.") # Show toast
+                else:
+                    await query.answer("Failed to mark project as done.", show_alert=True)
+            except Exception as e:
+                log.error(f"Error marking project done for user {user_id}, data {data}: {e}", exc_info=True)
+                await query.answer("An error occurred.", show_alert=True)
+        
+        elif data.startswith("mark_task_done:"):
+            try:
+                task_id = int(data.split(":")[1])
+                task_name = database.get_task_name(task_id) or "Unknown Task"
+                success = database.mark_task_status(task_id, STATUS_DONE)
+                if success:
+                    log.info(f"User {user_id} marked task {task_id} ('{task_name}') as done.")
+                    # Refresh the list
+                    fake_update = Update(0, message=query.message)
+                    fake_update._effective_user = query.from_user
+                    await cmd_handlers.list_tasks(fake_update, context)
+                    await query.answer(f"Task '{task_name}' marked done & archived.") # Show toast
+                else:
+                    await query.answer("Failed to mark task as done.", show_alert=True)
+            except Exception as e:
+                log.error(f"Error marking task done for user {user_id}, data {data}: {e}", exc_info=True)
+                await query.answer("An error occurred.", show_alert=True)
+        
+        elif data == "list_projects_done":
+            log.debug(f"User {user_id} requested archived projects list.")
+            try:
+                projects = database.get_projects(user_id, status=STATUS_DONE)
+                keyboard = []
+                if not projects:
+                     keyboard.append([InlineKeyboardButton("No archived projects found.", callback_data="noop_no_archive")])
+                else:
+                     for project_id, project_name in projects:
+                         # Row: [Project Name (no action), Reactivate Button]
+                         keyboard.append([
+                             InlineKeyboardButton(project_name, callback_data=f"noop_project:{project_id}"), 
+                             InlineKeyboardButton("↩️ Reactivate", callback_data=f"mark_project_active:{project_id}")
+                         ])
+                # Add button to go back to active list
+                keyboard.append([InlineKeyboardButton("« Back to Active Projects", callback_data="list_projects_active")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text("Archived Projects:", reply_markup=reply_markup)
+            except Exception as e:
+                log.error(f"Error listing archived projects for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text("An error occurred listing archived projects.")
+        
+        elif data == "list_tasks_done":
+            log.debug(f"User {user_id} requested archived tasks list.")
+            try:
+                current_project_id = database.get_current_project(user_id)
+                if not current_project_id:
+                     await query.edit_message_text("Please select an active project first.")
+                     return
+                project_name = database.get_project_name(current_project_id) or "Selected Project"
+                tasks = database.get_tasks(current_project_id, status=STATUS_DONE)
+                keyboard = []
+                if not tasks:
+                    keyboard.append([InlineKeyboardButton("No archived tasks found.", callback_data="noop_no_archive")])
+                else:
+                     for task_id, task_name in tasks:
+                         keyboard.append([
+                             InlineKeyboardButton(task_name, callback_data=f"noop_task:{task_id}"),
+                             InlineKeyboardButton("↩️ Reactivate", callback_data=f"mark_task_active:{task_id}")
+                         ])
+                keyboard.append([InlineKeyboardButton("« Back to Active Tasks", callback_data="list_tasks_active")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(f"Archived Tasks in '{project_name}':", reply_markup=reply_markup)
+            except Exception as e:
+                log.error(f"Error listing archived tasks for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text("An error occurred listing archived tasks.")
+
+        elif data.startswith("mark_project_active:"):
+            try:
+                project_id = int(data.split(":")[1])
+                project_name = database.get_project_name(project_id) or "Unknown Project"
+                success = database.mark_project_status(project_id, STATUS_ACTIVE)
+                if success:
+                    log.info(f"User {user_id} reactivated project {project_id} ('{project_name}').")
+                    # Refresh the archived list view
+                    fake_update = Update(0, message=query.message)
+                    fake_update._effective_user = query.from_user
+                    # Temporarily set data to re-trigger the archived list handler
+                    context.callback_data_override = "list_projects_done" 
+                    await button_callback(fake_update, context) 
+                    del context.callback_data_override # Clean up override
+                    await query.answer(f"Project '{project_name}' reactivated.")
+                else:
+                    await query.answer("Failed to reactivate project.", show_alert=True)
+            except Exception as e:
+                log.error(f"Error reactivating project for user {user_id}, data {data}: {e}", exc_info=True)
+                await query.answer("An error occurred.", show_alert=True)
+
+        elif data.startswith("mark_task_active:"):
+            try:
+                task_id = int(data.split(":")[1])
+                task_name = database.get_task_name(task_id) or "Unknown Task"
+                success = database.mark_task_status(task_id, STATUS_ACTIVE)
+                if success:
+                    log.info(f"User {user_id} reactivated task {task_id} ('{task_name}').")
+                    # Refresh the archived list view
+                    fake_update = Update(0, message=query.message)
+                    fake_update._effective_user = query.from_user
+                    context.callback_data_override = "list_tasks_done"
+                    await button_callback(fake_update, context)
+                    del context.callback_data_override
+                    await query.answer(f"Task '{task_name}' reactivated.")
+                else:
+                    await query.answer("Failed to reactivate task.", show_alert=True)
+            except Exception as e:
+                log.error(f"Error reactivating task for user {user_id}, data {data}: {e}", exc_info=True)
+                await query.answer("An error occurred.", show_alert=True)
+                
+        elif data == "list_projects_active":
+            log.debug(f"User {user_id} requested switch back to active projects list.")
+            fake_update = Update(0, message=query.message)
+            fake_update._effective_user = query.from_user
+            await cmd_handlers.list_projects(fake_update, context)
+            
+        elif data == "list_tasks_active":
+            log.debug(f"User {user_id} requested switch back to active tasks list.")
+            fake_update = Update(0, message=query.message)
+            fake_update._effective_user = query.from_user
+            await cmd_handlers.list_tasks(fake_update, context)
+
+        # --- Default Case --- 
         else:
             log.warning(f"Unhandled callback data from user {user_id}: {data}")
             await query.answer("Unknown action.")

@@ -7,6 +7,7 @@ import logging
 import sqlite3
 from . import google_auth as google_auth_handlers # Import the module itself
 from . import admin as admin_handlers # Import admin handlers
+from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
 
 log = logging.getLogger(__name__)
 
@@ -143,33 +144,46 @@ async def select_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("An unexpected error occurred.")
 
 async def list_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lists user's projects with inline buttons for selection."""
-    user_id = update.message.from_user.id
-    log.debug(f"User {user_id} requested project list.")
+    """Lists user's active projects with buttons for selection and marking done."""
+    user_id = update.effective_user.id
+    log.debug(f"User {user_id} requested active project list.")
     try:
-        projects = database.get_projects(user_id)
-        if not projects:
-            await update.message.reply_text("You don't have any projects yet. /create_project")
-            return
-            
-        current_project_id = database.get_current_project(user_id)
+        # Fetch only active projects
+        projects = database.get_projects(user_id, status=STATUS_ACTIVE)
+        
         keyboard = []
-        for project_id, project_name in projects:
-            button_text = project_name
-            if project_id == current_project_id:
-                button_text = f"➡️ {project_name}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"select_project:{project_id}")])
+        if not projects:
+            keyboard.append([InlineKeyboardButton("No active projects found. Create one?", callback_data="noop_create_project")]) # Placeholder
+        else:
+            current_project_id = database.get_current_project(user_id)
+            for project_id, project_name in projects:
+                button_text = project_name
+                if project_id == current_project_id:
+                    button_text = f"➡️ {project_name}" # Indicate current project
+                # Row: [Select Button, Mark Done Button]
+                keyboard.append([
+                    InlineKeyboardButton(button_text, callback_data=f"select_project:{project_id}"),
+                    InlineKeyboardButton("✅ Mark Done", callback_data=f"mark_project_done:{project_id}")
+                ])
+                
+        # Add button to view archived projects
+        keyboard.append([InlineKeyboardButton("🗄️ View Archived Projects", callback_data="list_projects_done")])
             
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Select a project (➡️ = current):", reply_markup=reply_markup)
+        # Use edit_message_text if called from a callback, otherwise reply_text
+        if update.callback_query:
+            await update.callback_query.edit_message_text("Select an active project (➡️ = current) or mark as done:", reply_markup=reply_markup)
+        else:
+            await update.message.reply_text("Select an active project (➡️ = current) or mark as done:", reply_markup=reply_markup)
         
-        log.debug(f"Displayed project list for user {user_id}")
-    except sqlite3.Error as e:
-        log.error(f"DB Error in list_projects for user {user_id}: {e}")
-        await update.message.reply_text("An error occurred listing projects.")
+        log.debug(f"Displayed active project list for user {user_id}")
     except Exception as e:
-        log.error(f"Error in list_projects command for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred.")
+        log.error(f"Error listing/editing projects for user {user_id}: {e}", exc_info=True)
+        if update.callback_query:
+             try: await update.callback_query.message.reply_text("An error occurred listing projects.") # Send new message on callback error
+             except: pass
+        else: 
+             await update.message.reply_text("An error occurred listing projects.")
 
 async def delete_project_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Initiates the project deletion process."""
@@ -281,40 +295,57 @@ async def select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("An unexpected error occurred.")
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lists tasks in the current project with inline buttons for selection."""
-    user_id = update.message.from_user.id
-    log.debug(f"User {user_id} requested task list.")
+    """Lists active tasks in the current project with selection/done buttons."""
+    user_id = update.effective_user.id
+    log.debug(f"User {user_id} requested active task list.")
     try:
         current_project_id = database.get_current_project(user_id)
         if not current_project_id:
-            await update.message.reply_text('Please select a project first using /list_projects.')
-            return
+             message_text = 'Please select an active project first using /list_projects.'
+             if update.callback_query: await update.callback_query.edit_message_text(text=message_text) 
+             else: await update.message.reply_text(text=message_text)
+             return
             
-        tasks = database.get_tasks(current_project_id)
         project_name = database.get_project_name(current_project_id) or "Current Project"
+        # Fetch only active tasks for the current project
+        tasks = database.get_tasks(current_project_id, status=STATUS_ACTIVE)
+        
+        keyboard = []
+        list_title = f"Active tasks in '{project_name}' (➡️ = current):"
         
         if not tasks:
-            await update.message.reply_text(f"No tasks found for project '{project_name}'. /create_task")
-            return
-            
-        current_task_id = database.get_current_task(user_id)
-        keyboard = []
-        for task_id, task_name in tasks:
-            button_text = task_name
-            if task_id == current_task_id:
-                 button_text = f"➡️ {task_name}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"select_task:{task_id}")])
+            keyboard.append([InlineKeyboardButton(f"No active tasks found. Create one?", callback_data="noop_create_task")]) # Placeholder
+        else:
+            current_task_id = database.get_current_task(user_id)
+            for task_id, task_name in tasks:
+                button_text = task_name
+                if task_id == current_task_id:
+                     button_text = f"➡️ {task_name}"
+                # Row: [Select Button, Mark Done Button]
+                keyboard.append([
+                    InlineKeyboardButton(button_text, callback_data=f"select_task:{task_id}"),
+                    InlineKeyboardButton("✅ Mark Done", callback_data=f"mark_task_done:{task_id}")
+                ])
+                
+        # Add button to view archived tasks for this project
+        keyboard.append([InlineKeyboardButton("🗄️ View Archived Tasks", callback_data="list_tasks_done")])
+        # Add button to go back to project list
+        keyboard.append([InlineKeyboardButton("« Back to Projects", callback_data="list_projects_active")])
             
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(f"Select a task in '{project_name}' (➡️ = current):", reply_markup=reply_markup)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(text=list_title, reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(text=list_title, reply_markup=reply_markup)
         
-        log.debug(f"Displayed task list for user {user_id}")
-    except sqlite3.Error as e:
-        log.error(f"DB Error in list_tasks for user {user_id}: {e}")
-        await update.message.reply_text("An error occurred listing tasks.")
+        log.debug(f"Displayed active task list for user {user_id}")
     except Exception as e:
-        log.error(f"Error in list_tasks command for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred.")
+        log.error(f"Error listing/editing tasks for user {user_id}: {e}", exc_info=True)
+        if update.callback_query:
+             try: await update.callback_query.message.reply_text("An error occurred listing tasks.") 
+             except: pass
+        else: 
+             await update.message.reply_text("An error occurred listing tasks.")
 
 async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Initiates the task deletion process."""
