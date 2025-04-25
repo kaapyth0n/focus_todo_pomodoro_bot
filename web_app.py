@@ -24,7 +24,7 @@ def timer_page(user_id):
         return render_template_string("""
             <html>
                 <head>
-                    <title>Focus Pomodoro Timer</title>
+                    <title>Pomodoro Timer</title>
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <style>
                         body {
@@ -61,17 +61,19 @@ def timer_page(user_id):
                         .status.error { color: #D32F2F; font-weight: bold; } /* Error color */
 
                         /* Background color changes based on state */
-                        body.running { background-color: #e8f5e9; } /* Light Green */
+                        body.running-work { background-color: #e8f5e9; } /* Light Green for work */
+                        body.running-break { background-color: #e3f2fd; } /* Light Blue for break */
                         body.paused { background-color: #fffde7; } /* Light Yellow */
                         body.stopped { background-color: #f5f5f5; } /* Light Grey */
                         body.finished { background-color: #ffebee; } /* Light Red */
                         body.error { background-color: #fce4ec; } /* Light Pink */
+                        body.loading { background-color: #f7f9fc; } /* Default background */
 
                     </style>
                 </head>
                 <body id="body-status" class="loading">
                     <div class="timer-container">
-                        <h1 id="timer-title">Focus Timer</h1>
+                        <h1 id="timer-title">Loading Timer...</h1>
                         <div id="status" class="status loading">Loading...</div>
                         <div id="countdown" class="timer">--:--</div>
                     </div>
@@ -84,10 +86,22 @@ def timer_page(user_id):
 
                         let localRemainingSeconds = 0;
                         let currentState = 'loading'; // loading, running, paused, stopped, finished, error
+                        let currentSessionType = 'work'; // Default to work
                         let currentDuration = 25; // Default duration
                         let localIntervalId = null;
                         let syncIntervalId = null;
                         const SYNC_INTERVAL_MS = 5000; // Sync with server every 5 seconds
+                        
+                        // Add console logging for debugging on the web page itself
+                        const originalLog = console.log;
+                        const originalDebug = console.debug;
+                        const originalError = console.error;
+                        const web_log = {
+                            log: function(...args) { originalLog.apply(console, ['[WEB]', ...args]); },
+                            debug: function(...args) { originalDebug.apply(console, ['[WEB DEBUG]', ...args]); },
+                            error: function(...args) { originalError.apply(console, ['[WEB ERROR]', ...args]); },
+                            info: function(...args) { originalLog.apply(console, ['[WEB INFO]', ...args]); } 
+                        };
 
                         function formatTime(totalSeconds) {
                             if (isNaN(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
@@ -100,20 +114,42 @@ def timer_page(user_id):
                             // Update countdown text
                             countdownElem.innerText = formatTime(localRemainingSeconds);
                             
-                            // Update status text and body class
+                            // Update status text, title and body class
                             let statusText = 'Unknown';
+                            let titleText = 'Timer';
+                            let bodyClass = currentState; // Base class is the state
+
                             switch (currentState) {
-                                case 'loading': statusText = 'Loading...'; break;
-                                case 'running': statusText = 'Timer Running'; break;
-                                case 'paused': statusText = 'Timer Paused'; break;
-                                case 'stopped': statusText = 'Timer Stopped'; break;
-                                case 'finished': statusText = "Time's up!"; break;
-                                case 'error': statusText = 'Error / Connection Issue'; break;
+                                case 'loading': 
+                                    statusText = 'Loading...'; 
+                                    titleText = 'Loading Timer...';
+                                    break;
+                                case 'running': 
+                                    statusText = currentSessionType === 'break' ? 'Break Running' : 'Focus Running'; 
+                                    titleText = currentSessionType === 'break' ? 'Break Timer' : 'Focus Timer';
+                                    bodyClass = `running-${currentSessionType}`; // e.g., running-work or running-break
+                                    break;
+                                case 'paused': 
+                                    statusText = 'Timer Paused'; 
+                                    titleText = currentSessionType === 'break' ? 'Break Paused' : 'Focus Paused';
+                                    break;
+                                case 'stopped': 
+                                    statusText = 'Timer Stopped'; 
+                                    titleText = 'Timer Stopped';
+                                    break;
+                                case 'finished': 
+                                    statusText = "Time's up!"; 
+                                    titleText = currentSessionType === 'break' ? 'Break Finished' : 'Focus Finished';
+                                    break;
+                                case 'error': 
+                                    statusText = 'Error / Connection Issue'; 
+                                    titleText = 'Timer Error';
+                                    break;
                             }
                             statusElem.innerText = statusText;
                             statusElem.className = `status ${currentState}`;
-                            bodyElem.className = currentState; // Update body class for background color etc.
-                            titleElem.innerText = `Focus Timer (${currentDuration} min)`;
+                            titleElem.innerText = `${titleText} (${currentDuration} min)`;
+                            bodyElem.className = bodyClass; // Update body class for background color etc.
                         }
 
                         function stopLocalCountdown() {
@@ -146,17 +182,19 @@ def timer_page(user_id):
                             }, 1000);
                         }
 
-                        function updateState(newState, newRemainingSeconds, newDuration) {
-                            web_log.debug(`Updating state: ${newState}, remaining: ${newRemainingSeconds}s, duration: ${newDuration}min`);
+                        function updateState(newState, newRemainingSeconds, newDuration, newSessionType) {
+                            web_log.debug(`Updating state: ${newState}, session: ${newSessionType}, remaining: ${newRemainingSeconds}s, duration: ${newDuration}min`);
                             const stateChanged = currentState !== newState;
+                            const typeChanged = currentSessionType !== newSessionType;
                             const timeChangedSignificantly = Math.abs(localRemainingSeconds - newRemainingSeconds) > 5; // Allow for small drift
 
                             currentState = newState;
                             currentDuration = newDuration || 25; // Use fetched duration or default
+                            currentSessionType = newSessionType || 'work'; // Use fetched type or default
 
-                            // Update local time only if significantly different or state changed
+                            // Update local time only if significantly different or state/type changed
                             // or if the local countdown is not running (e.g., was paused)
-                            if (stateChanged || timeChangedSignificantly || localIntervalId === null) {
+                            if (stateChanged || typeChanged || timeChangedSignificantly || localIntervalId === null) {
                                 localRemainingSeconds = newRemainingSeconds;
                             }
 
@@ -193,13 +231,13 @@ def timer_page(user_id):
                                      effectiveState = 'finished'; // Treat running but 0 time as finished
                                 }
 
-                                updateState(effectiveState, data.remaining_seconds, data.duration);
+                                updateState(effectiveState, data.remaining_seconds, data.duration, data.session_type);
 
                             } catch (error) {
                                 web_log.error('Sync error:', error);
                                 // Avoid overwriting a finished state with error
                                 if (currentState !== 'finished') { 
-                                     updateState('error', localRemainingSeconds, currentDuration); // Keep last known time on error
+                                     updateState('error', localRemainingSeconds, currentDuration, currentSessionType); // Keep last known time/type on error
                                 }
                             }
                         }
@@ -214,16 +252,6 @@ def timer_page(user_id):
                             web_log.info(`Periodic sync started (${SYNC_INTERVAL_MS}ms).`);
                         }
                         
-                        // Add console logging for debugging on the web page itself
-                        const originalLog = console.log;
-                        const originalDebug = console.debug;
-                        const originalError = console.error;
-                        const web_log = {
-                            log: function(...args) { originalLog.apply(console, ['[WEB]', ...args]); },
-                            debug: function(...args) { originalDebug.apply(console, ['[WEB DEBUG]', ...args]); },
-                            error: function(...args) { originalError.apply(console, ['[WEB ERROR]', ...args]); },
-                            info: function(...args) { originalLog.apply(console, ['[WEB INFO]', ...args]); } 
-                        };
                         
                         // Start initialization
                         initTimer();
@@ -246,10 +274,17 @@ def api_timer_status(user_id):
 
         if not state_data:
             web_log.debug(f"API: No timer state found for user {user_id}")
-            return jsonify({'state': 'stopped', 'remaining_seconds': 0, 'duration': 25}) # Return default duration
+            # Return default values for a non-existent timer
+            return jsonify({
+                'state': 'stopped', 
+                'remaining_seconds': 0, 
+                'duration': 25, 
+                'session_type': 'work' # Default session type
+            }) 
 
         current_state = state_data.get('state', 'stopped') # Default to stopped if state key missing
         duration_minutes = state_data.get('duration', 25) 
+        session_type = state_data.get('session_type', 'work') # Get session type, default to 'work'
         remaining_seconds = 0
 
         if current_state == 'running':
@@ -272,22 +307,21 @@ def api_timer_status(user_id):
             remaining_seconds = max(0, round(remaining_minutes * 60))
             
         elif current_state == 'stopped':
-            # If stopped, report the last known accumulated time as remaining time 'worked'
-            # Or perhaps better to report 0 remaining? Let's report 0 remaining.
             accumulated_time_minutes = state_data.get('accumulated_time', 0)
-             # If stopped early, remaining is technically duration - accumulated, but display-wise 0 makes sense.
-            remaining_minutes = duration_minutes - accumulated_time_minutes
-            remaining_seconds = max(0, round(remaining_minutes * 60)) 
-            # Let's actually return 0 if stopped, unless it finished fully
-            is_completed = 1 if state_data.get('accumulated_time', 0) >= (duration_minutes - 0.01) else 0
-            if not is_completed:
-                remaining_seconds = 0 # If stopped early, show 0 time remaining on the clock.
+            is_completed = 1 if accumulated_time_minutes >= (duration_minutes - 0.01) else 0
+            if is_completed:
+                # If stopped but completed, report 0 seconds remaining
+                remaining_seconds = 0 
+            else:
+                # If stopped early, also report 0 seconds remaining (clock stops)
+                remaining_seconds = 0 
 
-        web_log.debug(f"API: Returning state={current_state}, remaining={remaining_seconds}, duration={duration_minutes} for user {user_id}")
+        web_log.debug(f"API: Returning state={current_state}, session={session_type}, remaining={remaining_seconds}, duration={duration_minutes} for user {user_id}")
         return jsonify({
             'state': current_state,
             'remaining_seconds': remaining_seconds,
-            'duration': duration_minutes 
+            'duration': duration_minutes, 
+            'session_type': session_type # Include session_type in the response
         })
 
     except Exception as e:
