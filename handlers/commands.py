@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from config import timer_states, DOMAIN_URL
 import logging
 import sqlite3
+from . import google_auth as google_auth_handlers # Import the module itself
 
 log = logging.getLogger(__name__)
 
@@ -439,9 +440,12 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
     log.info(f"Timer finished job running for user {user_id}, type: {session_type}, duration: {duration_minutes}")
     
     try:
-        if user_id in timer_states and timer_states[user_id].get('job') == job:
+        timer_state_entry = timer_states.get(user_id)
+        if timer_state_entry and timer_state_entry.get('job') == job:
             log.debug(f"Timer state found for user {user_id}, processing completion.")
             project_id, task_id, project_name, task_name = None, None, None, None
+            initial_start_time = timer_state_entry['initial_start_time']
+            is_completed = 1 # Timer finished naturally
             
             if session_type == 'work':
                 project_id = database.get_current_project(user_id)
@@ -451,24 +455,21 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                      task_name = database.get_task_name(task_id)
                      if not project_name or not task_name:
                           log.warning(f"Work timer finished for {user_id}, but project/task name missing (deleted?).")
-                          project_id, task_id = None, None
+                          project_id, task_id = None, None # Ensure they are None if names missing
                 else:
                     log.warning(f"Work timer finished for {user_id}, but project/task not selected in DB.")
                     await context.bot.send_message(chat_id=user_id, text=f"⏱️ Work timer finished ({duration_minutes} min), but project/task was unselected. Time not logged.")
-                    if user_id in timer_states: del timer_states[user_id]
+                    del timer_states[user_id] # Cleanup state
                     return 
             
-            timer_state_data = timer_states[user_id]
-            timer_state_data['accumulated_time'] = duration_minutes
-            timer_state_data['state'] = 'stopped' 
-            initial_start_time = timer_state_data['initial_start_time']
-
-            database.add_pomodoro_session(
+            # Add session to DB
+            session_added_id = database.add_pomodoro_session(
                 user_id=user_id, project_id=project_id, task_id=task_id,
                 start_time=initial_start_time, duration_minutes=duration_minutes, 
-                session_type=session_type, completed=1       
+                session_type=session_type, completed=is_completed       
             )
             
+            # Prepare message and attempt auto-append *if* it was a work session
             if session_type == 'work' and project_id and task_id:
                 success_message = (
                     f"✅ Time's up! Work session completed.\n\n"
@@ -482,25 +483,34 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await context.bot.send_message(chat_id=user_id, text=success_message, reply_markup=reply_markup)
+                
+                # Attempt automatic append to Google Sheet
+                if session_added_id: # Check if DB save was likely successful
+                    session_data_for_append = {
+                        'start_time': initial_start_time,
+                        'duration_minutes': duration_minutes,
+                        'completed': is_completed,
+                        'session_type': session_type,
+                        'project_id': project_id,
+                        'task_id': task_id
+                    }
+                    await google_auth_handlers._append_single_session_to_sheet(user_id, session_data_for_append)
+                
             elif session_type == 'break': 
                  success_message = f"🧘 Break finished ({duration_minutes} minutes). Time for work!" 
                  await context.bot.send_message(chat_id=user_id, text=success_message)
 
             log.info(f"Session type '{session_type}' completed and logged for user {user_id}.")
-            del timer_states[user_id]
+            del timer_states[user_id] # Cleanup state after processing
                 
         else:
             log.warning(f"Timer finished job executed for user {user_id}, but state was missing or job outdated.")
 
-    except sqlite3.Error as e:
-        log.error(f"DB Error in timer_finished for user {user_id}: {e}")
-        try: await context.bot.send_message(chat_id=user_id, text="An error occurred saving session data.")
-        except: pass
-        if user_id in timer_states: del timer_states[user_id]
-    except Exception as e:
-        log.error(f"Unexpected error in timer_finished for user {user_id}: {e}", exc_info=True)
+    except Exception as e: # Broader catch for unexpected errors during processing
+        log.error(f"Unexpected error processing finished timer job for user {user_id}: {e}", exc_info=True)
         try: await context.bot.send_message(chat_id=user_id, text="An unexpected error occurred when finishing the timer.")
         except: pass
+        # Ensure state cleanup even on error
         if user_id in timer_states: del timer_states[user_id]
 
 async def pause_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -607,7 +617,7 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         accumulated_time = state_data['accumulated_time']
         start_time_current_interval = state_data['start_time'] 
         initial_start_time = state_data['initial_start_time']
-        duration_minutes = state_data['duration'] 
+        duration_minutes_target = state_data['duration'] # Renamed for clarity
         session_type = state_data['session_type'] 
         job = state_data.get('job')
 
@@ -615,15 +625,17 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             job.schedule_removal()
             log.debug(f"Removed job for stopped timer (user {user_id}).")
             
+        final_accumulated_minutes = accumulated_time # Start with previously accumulated
         if current_state == 'running':
             current_time = datetime.now()
             time_worked_current_interval = (current_time - start_time_current_interval).total_seconds() / 60
-            accumulated_time += time_worked_current_interval
+            final_accumulated_minutes += time_worked_current_interval
         
-        is_completed = 1 if accumulated_time >= (duration_minutes - 0.01) else 0 
+        # Use target duration for completion check
+        is_completed = 1 if final_accumulated_minutes >= (duration_minutes_target - 0.01) else 0 
         
         project_id, task_id, project_name, task_name = None, None, None, None
-        log_message_details = f"Duration: {accumulated_time:.2f} / {duration_minutes} minutes"
+        log_message_details = f"Duration: {final_accumulated_minutes:.2f} / {duration_minutes_target} minutes"
 
         if session_type == 'work':
             timer_type_display = "Work timer"
@@ -638,18 +650,32 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     log_message_details += " (Project/Task info missing)"        
             else:
                 log_message_details += " (No project/task selected)"
+                project_id, task_id = None, None # Ensure null if not properly selected
         else: 
             timer_type_display = "Break timer"
 
-        database.add_pomodoro_session(
+        # Add session to DB
+        session_added_id = database.add_pomodoro_session(
             user_id=user_id, project_id=project_id, task_id=task_id,
-            start_time=initial_start_time, duration_minutes=accumulated_time,
+            start_time=initial_start_time, duration_minutes=final_accumulated_minutes,
             session_type=session_type, completed=is_completed
         )
             
         message = f'⏹️ {timer_type_display} stopped.\n\n{log_message_details}'
         await update.message.reply_text(message)
         log.info(f"Stopped and logged {session_type} timer for user {user_id}.")
+        
+        # Attempt automatic append to Google Sheet *if* it was a work session and DB save likely worked
+        if session_type == 'work' and session_added_id:
+            session_data_for_append = {
+                'start_time': initial_start_time,
+                'duration_minutes': final_accumulated_minutes,
+                'completed': is_completed,
+                'session_type': session_type,
+                'project_id': project_id,
+                'task_id': task_id
+            }
+            await google_auth_handlers._append_single_session_to_sheet(user_id, session_data_for_append)
            
     except sqlite3.Error as e:
          log.error(f"DB Error logging session on stop for user {user_id}: {e}")
@@ -779,30 +805,34 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.info(f"User {user_id} requested /help")
     help_text = (
         "Here are the available commands:\n\n"
-        "Project Management:\n"
-        "  /create_project \"Project Name\" - Create a new project.\n"
-        "  /list_projects - List and select projects (➡️ indicates current).\n"
-        "  /select_project \"Project Name\" - Select a project by name.\n"
-        "  /delete_project - Delete a project and its data.\n\n"
-        "Task Management:\n"
-        "  /create_task \"Task Name\" - Add task to the current project.\n"
-        "  /list_tasks - List and select tasks in the current project (➡️ indicates current).\n"
-        "  /select_task \"Task Name\" - Select a task by name.\n"
-        "  /delete_task - Delete a task and its data.\n\n"
-        "Timer Control:\n"
-        "  /start_timer [minutes] - Start Pomodoro (default 25 min). E.g., /start_timer 45\n"
-        "  /pause_timer - Pause the current timer.\n"
-        "  /resume_timer - Resume the paused timer.\n"
-        "  /stop_timer - Stop the timer early and log time.\n"
-        "  (Breaks are offered after work sessions)\n\n"
-        "Reporting:\n"
-        "  /report - Get daily, weekly, or monthly work time reports.\n\n"
-        "Other:\n"
-        "  /help - Show this help message.\n"
-        "  /start - Initialize or welcome message."
+        "*Project Management:*\n"
+        "  `/create_project \"Project Name\"` - Create a new project.\n"
+        "  `/list_projects` - List and select projects (➡️ indicates current).\n"
+        "  `/select_project \"Project Name\"` - Select a project by name.\n"
+        "  `/delete_project` - Delete a project and its data.\n\n"
+        "*Task Management:*\n"
+        "  `/create_task \"Task Name\"` - Add task to the current project.\n"
+        "  `/list_tasks` - List and select tasks in the current project (➡️ indicates current).\n"
+        "  `/select_task \"Task Name\"` - Select a task by name.\n"
+        "  `/delete_task` - Delete a task and its data.\n\n"
+        "*Timer Control:*\n"
+        "  `/start_timer [minutes]` - Start Pomodoro (default 25 min). E.g., `/start_timer 45`\n"
+        "  `/pause_timer` - Pause the current timer.\n"
+        "  `/resume_timer` - Resume the paused timer.\n"
+        "  `/stop_timer` - Stop the timer early and log time.\n"
+        "  (Breaks are offered after work sessions or via button)\n\n"
+        "*Reporting:*\n"
+        "  `/report` - Get daily, weekly, or monthly work time reports.\n\n"
+        "*Google Sheets:*\n"
+        "  `/connect_google` - Authorize access to Google Sheets.\n"
+        "  `/export_to_sheets <SPREADSHEET_ID> [SheetName]` - Export all session data.\n\n"
+        "*Other:*\n"
+        "  `/help` - Show this help message.\n"
+        "  `/start` - Initialize or welcome message."
     )
     try:
-        await update.message.reply_text(help_text)
+        # Use MarkdownV2 for better formatting if desired, but requires escaping special chars
+        await update.message.reply_text(help_text, parse_mode='Markdown') 
     except Exception as e:
          log.error(f"Failed to send help message: {e}") 
 

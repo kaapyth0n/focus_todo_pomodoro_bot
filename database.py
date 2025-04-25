@@ -11,23 +11,28 @@ DB_NAME = 'focus_pomodoro.db'
 # For now, just get logger by name
 log = logging.getLogger(__name__)
 
-def _add_google_credentials_column(conn):
-    """Helper to add the google_credentials_json column if it doesn't exist."""
+def _check_add_user_columns(conn):
+    """Helper to add missing tracked columns (e.g., google related) to the users table."""
     try:
         cursor = conn.cursor()
-        # Check if the column exists
         cursor.execute("PRAGMA table_info(users)")
         columns = [column[1] for column in cursor.fetchall()]
+        
         if 'google_credentials_json' not in columns:
             log.info("Adding 'google_credentials_json' column to 'users' table.")
             cursor.execute("ALTER TABLE users ADD COLUMN google_credentials_json TEXT DEFAULT NULL")
-            conn.commit()
-            log.info("Column 'google_credentials_json' added successfully.")
-        else:
-            log.debug("Column 'google_credentials_json' already exists.")
+            log.info("Column 'google_credentials_json' added.")
+            
+        if 'google_sheet_id' not in columns:
+            log.info("Adding 'google_sheet_id' column to 'users' table.")
+            cursor.execute("ALTER TABLE users ADD COLUMN google_sheet_id TEXT DEFAULT NULL")
+            log.info("Column 'google_sheet_id' added.")
+            
+        conn.commit() # Commit after potential ALTERs
+            
     except sqlite3.Error as e:
-        log.error(f"Failed to check/add 'google_credentials_json' column: {e}")
-        # Depending on severity, you might want to raise this
+        log.error(f"Failed to check/add columns to 'users' table: {e}")
+        conn.rollback() # Rollback on error
 
 def create_database():
     """Creates or ensures the database schema exists, including new columns."""
@@ -36,7 +41,7 @@ def create_database():
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
-        # Users table - Add google_credentials_json
+        # Users table - Add google_credentials_json and google_sheet_id
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -44,15 +49,16 @@ def create_database():
                 last_name TEXT,
                 current_project_id INTEGER DEFAULT NULL, 
                 current_task_id INTEGER DEFAULT NULL,
-                google_credentials_json TEXT DEFAULT NULL, -- Added column
+                google_credentials_json TEXT DEFAULT NULL, 
+                google_sheet_id TEXT DEFAULT NULL, -- Added column
                 FOREIGN KEY (current_project_id) REFERENCES projects(project_id) ON DELETE SET NULL,
                 FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
             )
         ''')
         conn.commit() # Commit table creation before altering
 
-        # Add the column if the table was just created or already existed but lacked the column
-        _add_google_credentials_column(conn)
+        # Check and add missing columns
+        _check_add_user_columns(conn)
         
         # Projects table
         cursor.execute('''
@@ -666,6 +672,91 @@ def get_google_credentials(user_id):
         if conn:
             conn.close()
 
+def store_google_sheet_id(user_id: int, sheet_id: str):
+    """Stores the user's default Google Sheet ID."""
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET google_sheet_id = ? WHERE user_id = ?", (sheet_id, user_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"Stored default Google Sheet ID {sheet_id} for user {user_id}.")
+            success = True
+        else:
+            log.warning(f"Attempted to store Google Sheet ID for non-existent user {user_id}.")
+    except sqlite3.Error as e:
+        log.error(f"Database error storing Google Sheet ID for user {user_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+def get_google_sheet_id(user_id: int):
+    """Retrieves the user's default Google Sheet ID."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT google_sheet_id FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        if result and result[0]:
+            log.debug(f"Retrieved default Google Sheet ID {result[0]} for user {user_id}.")
+            return result[0]
+        else:
+            log.debug(f"No default Google Sheet ID found for user {user_id}.")
+            return None
+    except sqlite3.Error as e:
+        log.error(f"Database error retrieving Google Sheet ID for user {user_id}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+# --- Data Export Functions ---
+def get_all_user_sessions_for_export(user_id):
+    """
+    Retrieves all session data for a user, joining project/task names.
+    Returns a list of lists, suitable for CSV or Sheets export, including headers.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        
+        # Select relevant columns, join with projects and tasks, handle NULLs
+        cursor.execute('''
+            SELECT 
+                DATE(ps.start_time) as SessionDate,
+                COALESCE(p.project_name, 'N/A') as ProjectName,
+                COALESCE(t.task_name, 'N/A') as TaskName,
+                ROUND(ps.work_duration, 2) as DurationMinutes,
+                ps.session_type as SessionType,
+                CASE ps.completed WHEN 1 THEN 'Yes' ELSE 'No' END as Completed
+            FROM pomodoro_sessions ps
+            LEFT JOIN projects p ON ps.project_id = p.project_id
+            LEFT JOIN tasks t ON ps.task_id = t.task_id
+            WHERE ps.user_id = ?
+            ORDER BY ps.start_time ASC
+        ''', (user_id,))
+        
+        rows = cursor.fetchall()
+        
+        # Add header row
+        header = ['Date', 'Project', 'Task', 'Duration (min)', 'Type', 'Completed']
+        export_data = [header] + [list(row) for row in rows]
+        
+        log.debug(f"Retrieved {len(rows)} sessions for export for user {user_id}.")
+        return export_data
+        
+    except sqlite3.Error as e:
+        log.error(f"Database error retrieving sessions for export for user {user_id}: {e}")
+        return None # Return None on error
+    finally:
+        if conn:
+            conn.close()
+
 # --- Initialization ---
 if __name__ == '__main__':
     # Ensure the logger is configured if running standalone
@@ -673,4 +764,4 @@ if __name__ == '__main__':
     create_database()
     # You might want to add ALTER TABLE statements here if needed for existing dbs
     # e.g., try adding columns and ignore errors if they exist
-    print("Database checked/initialized (including Google credentials column).")
+    print("Database checked/initialized (including Google columns).")

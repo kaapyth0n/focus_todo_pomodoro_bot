@@ -1,5 +1,5 @@
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 import database
 from datetime import datetime, timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -507,6 +507,8 @@ async def setup_bot_commands(application: Application):
         BotCommand("resume_timer", "Resume paused timer"),
         BotCommand("stop_timer", "Stop current timer & log"),
         BotCommand("report", "Show report options"),
+        BotCommand("connect_google", "Connect Google Sheets account"),
+        BotCommand("export_to_sheets", "Export data to Google Sheets"),
     ]
     await application.bot.set_my_commands(commands)
     log.info("Bot commands menu set.")
@@ -543,10 +545,23 @@ def main():
     application.add_handler(CommandHandler('delete_project', cmd_handlers.delete_project_command))
     application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
     application.add_handler(CommandHandler('help', cmd_handlers.help_command))
+    application.add_handler(CommandHandler('export_to_sheets', google_auth_handlers.export_to_sheets))
 
-    # Register Google Auth handlers
-    application.add_handler(CommandHandler('connect_google', google_auth_handlers.connect_google))
-    application.add_handler(CommandHandler('oauth_code', google_auth_handlers.handle_oauth_code))
+    # --- Google Auth Conversation Handler ---
+    google_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('connect_google', google_auth_handlers.connect_google)],
+        states={
+            google_auth_handlers.WAITING_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, google_auth_handlers.receive_oauth_code)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', google_auth_handlers.cancel_oauth)],
+        # Optional: Add conversation timeout
+        # conversation_timeout=timedelta(minutes=5)
+    )
+
+    # Register Google Auth Conversation Handler
+    application.add_handler(google_conv_handler)
 
     # Register reply keyboard button handlers
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_START_WORK}$'), cmd_handlers.handle_start_work_button))
@@ -575,7 +590,6 @@ def check_and_update_db_schema():
     try:
         conn = sqlite3.connect(database.DB_NAME)
         cursor = conn.cursor()
-        # Check if users table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
         if not cursor.fetchone():
             log.info("Database tables not found, initializing...")
@@ -583,13 +597,13 @@ def check_and_update_db_schema():
             log.info("Database fully initialized.")
         else:
             log.info("Database found. Checking schema...")
-            # Check for google_credentials_json column specifically
-            database._add_google_credentials_column(conn) # Use the helper from database.py
+            # Check for google columns specifically
+            database._check_add_user_columns(conn) # Use the potentially renamed helper
             log.info("Database schema check complete.")
         conn.close()
     except sqlite3.Error as e:
         log.critical(f"CRITICAL: Error checking/updating database schema: {e}", exc_info=True)
-        exit(1) # Exit if DB check fails critically
+        exit(1)
     except Exception as e:
         log.critical(f"CRITICAL: Unexpected error during DB schema check: {e}", exc_info=True)
         exit(1)
