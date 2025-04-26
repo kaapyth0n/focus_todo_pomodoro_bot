@@ -497,25 +497,35 @@ def _structure_report_data(rows):
     )
     return total_minutes, final_breakdown
 
-def get_daily_report(user_id):
+def get_daily_report(user_id: int, offset: int = 0):
     """
-    Get the total time worked today and detailed project/task breakdown.
+    Get the total time worked for a specific day and detailed breakdown.
     
+    Args:
+        user_id (int): Telegram user ID.
+        offset (int): 0 for today, -1 for yesterday, 1 for tomorrow, etc.
+
     Returns:
-    tuple: (total_minutes, detailed_breakdown)
-        total_minutes (float): Total minutes worked today.
-        detailed_breakdown (list): List of project dicts, each with 'project_name', 
-                                  'project_minutes', and 'tasks' list 
-                                  (each task dict has 'task_name', 'task_minutes').
+    tuple: (report_date, total_minutes, detailed_breakdown)
+        report_date (str): The date the report is for (YYYY-MM-DD).
+        total_minutes (float): Total minutes worked for that day.
+        detailed_breakdown (list): Project/task breakdown for that day.
     """
     conn = None
+    report_date = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
-        today = datetime.utcnow().date().isoformat()
+        # Calculate the target date based on the offset
+        cursor.execute("SELECT DATE('now', ?, 'localtime')", (f"{offset} days",))
+        target_date_result = cursor.fetchone()
+        if not target_date_result:
+            log.error(f"Could not calculate target date for offset {offset}")
+            return None, 0.0, []
+        report_date = target_date_result[0]
         
-        # Get detailed breakdown by project and task for today
+        # Get detailed breakdown by project and task for the target date
         cursor.execute('''
             SELECT 
                 p.project_name, 
@@ -525,57 +535,76 @@ def get_daily_report(user_id):
             JOIN projects p ON ps.project_id = p.project_id
             JOIN tasks t ON ps.task_id = t.task_id
             WHERE ps.user_id = ? 
-              AND DATE(ps.start_time) = DATE(?) 
+              AND DATE(ps.start_time) = ? 
               AND ps.session_type = 'work'
               AND ps.project_id IS NOT NULL
               AND ps.task_id IS NOT NULL
             GROUP BY ps.project_id, ps.task_id, p.project_name, t.task_name
             ORDER BY p.project_name, task_minutes DESC
-        ''', (user_id, today))
+        ''', (user_id, report_date))
         
         rows = cursor.fetchall()
         total_minutes, detailed_breakdown = _structure_report_data(rows)
         
-        return (total_minutes, detailed_breakdown)
+        log.debug(f"Generated daily report for user {user_id}, date {report_date}, offset {offset}")
+        return (report_date, total_minutes, detailed_breakdown)
         
     except sqlite3.Error as e:
-        log.error(f"Database error getting daily report for user {user_id}: {e}", exc_info=True)
-        return (0.0, []) # Return empty report on error
+        log.error(f"Database error getting daily report for user {user_id}, offset {offset}: {e}", exc_info=True)
+        return None, 0.0, [] 
     finally:
         if conn:
             conn.close()
 
-def get_weekly_report(user_id):
+def get_weekly_report(user_id: int, offset: int = 0):
     """
-    Get weekly time worked: total, breakdown by day, and detailed project/task breakdown.
-    
+    Get weekly time worked for a specific week.
+
+    Args:
+        user_id (int): Telegram user ID.
+        offset (int): 0 for current week, -1 for last week, 1 for next week, etc.
+
     Returns:
-    tuple: (total_minutes, daily_breakdown, detailed_project_task_breakdown)
-        total_minutes (float): Total minutes worked this week.
-        daily_breakdown (list): List of (date_str, minutes) tuples.
-        detailed_project_task_breakdown (list): Project/task breakdown like in get_daily_report.
+    tuple: (week_start_date, total_minutes, daily_breakdown, detailed_project_task_breakdown)
+        week_start_date (str): The start date (Monday) of the reported week (YYYY-MM-DD).
+        total_minutes (float): Total minutes worked for that week.
+        daily_breakdown (list): List of (date_str, minutes) tuples for that week.
+        detailed_project_task_breakdown (list): Project/task breakdown for that week.
     """
     conn = None
+    week_start_date = None
     try:
         conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # Calculate week start/end based on offset
+        # offset * 7 days shifts to the target week, 'weekday 0' finds Monday, '-6 days' adjusts to start of week
+        week_start_modifier = f"{offset * 7 - 6} days"
+        week_end_modifier = f"{offset * 7 + 1} days"
+        cursor.execute("SELECT DATE('now', 'weekday 0', ?, 'localtime')", (week_start_modifier,))
+        week_start_result = cursor.fetchone()
+        cursor.execute("SELECT DATE('now', 'weekday 0', ?, 'localtime')", (week_end_modifier,))
+        week_end_result = cursor.fetchone()
+
+        if not week_start_result or not week_end_result:
+            log.error(f"Could not calculate week dates for offset {offset}")
+            return None, 0.0, [], []
+        week_start_date = week_start_result[0]
+        week_end_date_exclusive = week_end_result[0]
+
+        # Get WORK breakdown by day
         conn.row_factory = sqlite3.Row  # Use Row factory for daily breakdown
         cursor = conn.cursor()
-        
-        # Define week start/end
-        week_start_sql = "DATE('now', 'weekday 0', '-6 days')" # Monday of current week
-        week_end_sql = "DATE('now', 'weekday 0', '+1 day')" # Monday of next week
-
-        # Get WORK breakdown by day (keep this part)
-        cursor.execute(f'''
+        cursor.execute('''
             SELECT DATE(start_time) as day, SUM(COALESCE(work_duration, 0)) as minutes
             FROM pomodoro_sessions
             WHERE user_id = ?
-            AND DATE(start_time) >= {week_start_sql}
-            AND DATE(start_time) < {week_end_sql}
+            AND DATE(start_time) >= ?
+            AND DATE(start_time) < ?
             AND session_type = 'work'
             GROUP BY day
             ORDER BY day
-        ''', (user_id,))
+        ''', (user_id, week_start_date, week_end_date_exclusive))
         daily_breakdown = [(row['day'], row['minutes']) for row in cursor.fetchall()]
         
         # Reset row_factory to get tuples for project/task breakdown
@@ -583,7 +612,7 @@ def get_weekly_report(user_id):
         cursor = conn.cursor() 
 
         # Get detailed project/task breakdown for the week
-        cursor.execute(f'''
+        cursor.execute('''
             SELECT 
                 p.project_name, 
                 t.task_name, 
@@ -592,51 +621,64 @@ def get_weekly_report(user_id):
             JOIN projects p ON ps.project_id = p.project_id
             JOIN tasks t ON ps.task_id = t.task_id
             WHERE ps.user_id = ? 
-              AND DATE(ps.start_time) >= {week_start_sql}
-              AND DATE(ps.start_time) < {week_end_sql}
+              AND DATE(ps.start_time) >= ?
+              AND DATE(ps.start_time) < ?
               AND ps.session_type = 'work'
               AND ps.project_id IS NOT NULL
               AND ps.task_id IS NOT NULL
             GROUP BY ps.project_id, ps.task_id, p.project_name, t.task_name
             ORDER BY p.project_name, task_minutes DESC
-        ''', (user_id,))
+        ''', (user_id, week_start_date, week_end_date_exclusive))
         
         rows = cursor.fetchall()
         total_minutes, detailed_project_task_breakdown = _structure_report_data(rows)
 
-        # Note: total_minutes derived from _structure_report_data might slightly differ 
-        # from summing daily_breakdown if there were rounding differences, but should be close.
-        # We use the one from the detailed breakdown as the primary total.
-        
-        return (total_minutes, daily_breakdown, detailed_project_task_breakdown)
+        log.debug(f"Generated weekly report for user {user_id}, week starting {week_start_date}, offset {offset}")
+        return (week_start_date, total_minutes, daily_breakdown, detailed_project_task_breakdown)
 
     except sqlite3.Error as e:
-        log.error(f"Database error getting weekly report for user {user_id}: {e}", exc_info=True)
-        return (0.0, [], [])
+        log.error(f"Database error getting weekly report for user {user_id}, offset {offset}: {e}", exc_info=True)
+        return None, 0.0, [], []
     finally:
         if conn:
             conn.close()
 
-def get_monthly_report(user_id):
+def get_monthly_report(user_id: int, offset: int = 0):
     """
-    Get the total time worked this month and detailed project/task breakdown.
-    
+    Get the total time worked for a specific month and detailed breakdown.
+
+    Args:
+        user_id (int): Telegram user ID.
+        offset (int): 0 for current month, -1 for last month, 1 for next month, etc.
+
     Returns:
-    tuple: (total_minutes, detailed_breakdown) 
-           Format is the same as get_daily_report.
+    tuple: (month_start_date, total_minutes, detailed_breakdown)
+        month_start_date (str): The start date of the reported month (YYYY-MM-01).
+        total_minutes (float): Total minutes worked for that month.
+        detailed_breakdown (list): Project/task breakdown for that month.
     """
     conn = None
+    month_start_date = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
-        # Get the current month's start and end dates
-        # Using a subquery to get dates avoids multiple executes
-        date_query = "SELECT DATE('now', 'start of month') as start_date, DATE('now', 'start of month', '+1 month') as next_month_start"
+        # Calculate the target month's start and end dates
+        month_start_modifier = f"{offset} months"
+        next_month_start_modifier = f"{offset + 1} months"
+        cursor.execute("SELECT DATE('now', 'start of month', ?, 'localtime')", (month_start_modifier,))
+        month_start_result = cursor.fetchone()
+        cursor.execute("SELECT DATE('now', 'start of month', ?, 'localtime')", (next_month_start_modifier,))
+        next_month_start_result = cursor.fetchone()
         
+        if not month_start_result or not next_month_start_result:
+            log.error(f"Could not calculate month dates for offset {offset}")
+            return None, 0.0, []
+        month_start_date = month_start_result[0]
+        next_month_start_date = next_month_start_result[0]
+
         # Get detailed project/task breakdown for the month
-        cursor.execute(f'''
-            WITH MonthDates AS ({date_query})
+        cursor.execute('''
             SELECT 
                 p.project_name, 
                 t.task_name, 
@@ -644,25 +686,25 @@ def get_monthly_report(user_id):
             FROM pomodoro_sessions ps
             JOIN projects p ON ps.project_id = p.project_id
             JOIN tasks t ON ps.task_id = t.task_id
-            CROSS JOIN MonthDates md -- Use the dates from the CTE
             WHERE ps.user_id = ? 
-              AND DATE(ps.start_time) >= md.start_date
-              AND DATE(ps.start_time) < md.next_month_start
+              AND DATE(ps.start_time) >= ?
+              AND DATE(ps.start_time) < ?
               AND ps.session_type = 'work'
               AND ps.project_id IS NOT NULL
               AND ps.task_id IS NOT NULL
             GROUP BY ps.project_id, ps.task_id, p.project_name, t.task_name
             ORDER BY p.project_name, task_minutes DESC
-        ''', (user_id,))
+        ''', (user_id, month_start_date, next_month_start_date))
         
         rows = cursor.fetchall()
         total_minutes, detailed_breakdown = _structure_report_data(rows)
         
-        return (total_minutes, detailed_breakdown)
+        log.debug(f"Generated monthly report for user {user_id}, month starting {month_start_date}, offset {offset}")
+        return (month_start_date, total_minutes, detailed_breakdown)
 
     except sqlite3.Error as e:
-        log.error(f"Database error getting monthly report for user {user_id}: {e}", exc_info=True)
-        return (0.0, [])
+        log.error(f"Database error getting monthly report for user {user_id}, offset {offset}: {e}", exc_info=True)
+        return None, 0.0, []
     finally:
         if conn:
             conn.close()

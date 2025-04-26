@@ -97,22 +97,45 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Just acknowledge, don't change the message or remove buttons
             return 
 
-        # --- Report Callbacks ---
-        if data == "report_daily":
-            log.info(f"User {user_id} triggered daily report via callback.")
-            fake_update = Update(0, message=query.message) # Correct way to init Update
-            fake_update._effective_user = query.from_user # Pass user info
-            await report_daily(fake_update, context)
+        # --- Report Navigation Callback --- 
+        elif data.startswith("report_nav:"):
+            try:
+                parts = data.split(':')
+                report_type = parts[1]
+                offset = int(parts[2])
+                log.info(f"Handling report navigation: type={report_type}, offset={offset} for user {user_id}")
+                
+                if report_type == "daily":
+                    await cmd_handlers.report_daily(update, context, offset=offset)
+                elif report_type == "weekly":
+                    await cmd_handlers.report_weekly(update, context, offset=offset)
+                elif report_type == "monthly":
+                    await cmd_handlers.report_monthly(update, context, offset=offset)
+                else:
+                    log.warning(f"Unknown report type '{report_type}' in callback data: {data}")
+                    await query.answer("Unknown report type for navigation.")
+            except (IndexError, ValueError) as e:
+                log.error(f"Error parsing report navigation callback '{data}': {e}")
+                await query.answer("Error processing navigation.")
+            except Exception as e:
+                # Catch other potential errors during report generation
+                log.error(f"Error during report navigation callback '{data}': {e}", exc_info=True)
+                await query.answer("An error occurred generating the report.")
+                # Attempt to edit the message to show error, might fail if original message deleted
+                try: await query.edit_message_text("An error occurred generating the report.")
+                except Exception: pass 
+            return # Handled this callback type
+            
+        # --- Deprecated Report Callbacks (kept for safety, but should be unused now) ---
+        elif data == "report_daily":
+            log.info(f"User {user_id} triggered DEPRECATED daily report via callback. Redirecting.")
+            await cmd_handlers.report_daily(update, context, offset=0) # Call with offset 0
         elif data == "report_weekly":
-            log.info(f"User {user_id} triggered weekly report via callback.")
-            fake_update = Update(0, message=query.message)
-            fake_update._effective_user = query.from_user
-            await report_weekly(fake_update, context)
+            log.info(f"User {user_id} triggered DEPRECATED weekly report via callback. Redirecting.")
+            await cmd_handlers.report_weekly(update, context, offset=0) 
         elif data == "report_monthly":
-            log.info(f"User {user_id} triggered monthly report via callback.")
-            fake_update = Update(0, message=query.message)
-            fake_update._effective_user = query.from_user
-            await report_monthly(fake_update, context)
+            log.info(f"User {user_id} triggered DEPRECATED monthly report via callback. Redirecting.")
+            await cmd_handlers.report_monthly(update, context, offset=0)
         
         # --- Selection Callbacks ---
         elif data.startswith("select_project:"):

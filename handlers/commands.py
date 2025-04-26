@@ -769,147 +769,253 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del timer_states[user_id]
             log.debug(f"Cleaned timer state for user {user_id}.")
 
+# --- Helper Function for Report Titles --- 
+def _get_report_title(report_type: str, report_date_str: str | None, offset: int) -> str:
+    # NOTE: This helper intentionally returns unescaped titles with markdown.
+    # The calling function is responsible for escaping before sending.
+    if report_date_str is None: return f"*{report_type.capitalize()} Report \(Error\)*"
+    try:
+        report_date = datetime.fromisoformat(report_date_str)
+        if report_type == 'daily':
+            if offset == 0: return "*Daily Report \(Today\)*"
+            if offset == -1: return "*Daily Report \(Yesterday\)*"
+            # Escape date part separately if needed, but title escape should handle it.
+            return f"*Daily Report \({report_date.strftime('%a, %b %d, %Y')}\)*"
+        elif report_type == 'weekly':
+            if offset == 0: return "*Weekly Report \(This Week\)*"
+            if offset == -1: return "*Weekly Report \(Last Week\)*"
+            week_end_date = report_date + timedelta(days=6)
+            return f"*Weekly Report \({report_date.strftime('%b %d')} \- {week_end_date.strftime('%b %d, %Y')}\)*"
+        elif report_type == 'monthly':
+            if offset == 0: return f"*Monthly Report \({datetime.now().strftime('%B %Y')}\)*"
+            # Handles offset -1 and others correctly now
+            return f"*Monthly Report \({report_date.strftime('%B %Y')}\)*"
+    except ValueError:
+         return f"*{report_type.capitalize()} Report \(Date Error\)*"
+    return f"*{report_type.capitalize()} Report*" # Fallback
+
 # --- Report Commands ---
-async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends the daily report with project and task breakdown."""
+
+async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE, offset: int = 0):
+    """Sends the daily report with navigation."""
     user_id = update.effective_user.id
-    log.info(f"Generating daily report for user {user_id}")
-    total_minutes, detailed_breakdown = database.get_daily_report(user_id)
+    log.info(f"Generating daily report for user {user_id}, offset {offset}")
+    report_date, total_minutes, detailed_breakdown = database.get_daily_report(user_id, offset=offset)
     
-    if total_minutes == 0:
-        await update.effective_message.reply_text("You haven't recorded any work sessions today.")
+    # Get title from helper (contains markdown * and unescaped chars like ()))
+    raw_title = _get_report_title('daily', report_date, offset)
+    # Escape the generated title for final output
+    title = escape_markdown(raw_title, version=2)
+    report = f"📊 {title}\n\n"
+
+    if report_date is None:
+        report += "Could not retrieve report data\."
+        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
         return
         
-    report = f"📊 *Daily Report*\n\n"
-    report += f"Total time today: *{total_minutes:.1f} minutes*\n\n"
-    
-    if detailed_breakdown:
-        report += "*Project & Task Breakdown:*\n"
-        for project_data in detailed_breakdown:
-            proj_name = escape_markdown(project_data['project_name'], version=2)
-            proj_mins = project_data['project_minutes']
-            try:
-                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
-                report += f"• *{proj_name}:* {proj_mins:.1f} min ({percentage:.1f}%)\n"
-            except ZeroDivisionError:
-                report += f"• *{proj_name}:* {proj_mins:.1f} min\n"
-                
-            for task_data in project_data['tasks']:
-                task_name = escape_markdown(task_data['task_name'], version=2)
-                task_mins = task_data['task_minutes']
-                report += f"    \- {task_name}: {task_mins:.1f} min\n"
-    else:
-        report += "No specific project/task time recorded today\."
-
-    try:
-        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-    except Exception as e:
-        log.error(f"Failed to send daily report for user {user_id} with MarkdownV2: {e}")
-        # Fallback to plain text if Markdown fails
-        await update.effective_message.reply_text(report) # Send plain text
-
-async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends the weekly report with daily, project, and task breakdown."""
-    user_id = update.effective_user.id
-    log.info(f"Generating weekly report for user {user_id}")
-    total_minutes, daily_breakdown, detailed_project_task_breakdown = database.get_weekly_report(user_id)
-    
     if total_minutes == 0:
-        await update.effective_message.reply_text("You haven't recorded any work sessions this week.")
-        return
-    
-    report = f"📈 *Weekly Report*\n\n"
-    report += f"Total time this week: *{total_minutes:.1f} minutes*\n\n"
-    
-    if daily_breakdown:
-        report += "*Daily Breakdown:*\n"
-        for date_str, minutes in daily_breakdown:
-            try:
-                date_obj = datetime.fromisoformat(date_str).strftime("%a, %b %d")
-                report += f"• {escape_markdown(date_obj, version=2)}: {minutes:.1f} min\n"
-            except (ValueError, TypeError):
-                report += f"• {escape_markdown(date_str, version=2)}: {minutes:.1f} min\n"
-        report += "\n"
-
-    if detailed_project_task_breakdown:
-        report += "*Project & Task Breakdown:*\n"
-        for project_data in detailed_project_task_breakdown:
-            proj_name = escape_markdown(project_data['project_name'], version=2)
-            proj_mins = project_data['project_minutes']
-            try:
-                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
-                report += f"• *{proj_name}:* {proj_mins:.1f} min ({percentage:.1f}%)\n"
-            except ZeroDivisionError:
-                 report += f"• *{proj_name}:* {proj_mins:.1f} min\n"
-
-            for task_data in project_data['tasks']:
-                task_name = escape_markdown(task_data['task_name'], version=2)
-                task_mins = task_data['task_minutes']
-                report += f"    \- {task_name}: {task_mins:.1f} min\n"
+        report += "No work sessions recorded for this day\."
     else:
-        report += "No specific project/task time recorded this week\."
-    
-    try:
-        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-    except Exception as e:
-        log.error(f"Failed to send weekly report for user {user_id} with MarkdownV2: {e}")
-        await update.effective_message.reply_text(report)
+        report += f"Total time: *{escape_markdown(str(round(total_minutes, 1)), version=2)} minutes*\n\n"
+        if detailed_breakdown:
+            report += "*Project & Task Breakdown:*\n"
+            for project_data in detailed_breakdown:
+                proj_name = escape_markdown(project_data['project_name'], version=2)
+                proj_mins_str = escape_markdown(str(round(project_data['project_minutes'], 1)), version=2)
+                report_line = f"• *{proj_name}:* {proj_mins_str} min"
+                try:
+                    percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
+                    # Escape the percentage part
+                    percentage_str = escape_markdown(f"({percentage:.1f}%)", version=2)
+                    report_line += f" {percentage_str}"
+                except ZeroDivisionError:
+                    pass # Don't add percentage if total is zero
+                report += report_line + "\n"
+                    
+                for task_data in project_data['tasks']:
+                    task_name = escape_markdown(task_data['task_name'], version=2)
+                    task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
+                    report += f"    \- {task_name}: {task_mins_str} min\n"
+        else:
+            report += "No specific project/task time recorded for this day\."
 
-async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends the monthly report with project and task breakdown."""
+    # Navigation Buttons
+    prev_offset = offset - 1
+    next_offset = offset + 1
+    keyboard = [[
+        InlineKeyboardButton("⬅️ Previous Day", callback_data=f"report_nav:daily:{prev_offset}"),
+        InlineKeyboardButton("Next Day ➡️", callback_data=f"report_nav:daily:{next_offset}")
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    try:
+        # Edit message if called from callback, otherwise send new
+        if update.callback_query:
+            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+        else:
+            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+    except Exception as e:
+        log.error(f"Failed to send/edit daily report for user {user_id} with MarkdownV2: {e}")
+        # Fallback for sending might be tricky if edit failed
+        if not update.callback_query:
+             await update.effective_message.reply_text(report, reply_markup=reply_markup)
+
+async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offset: int = 0):
+    """Sends the weekly report with navigation."""
     user_id = update.effective_user.id
-    log.info(f"Generating monthly report for user {user_id}")
-    total_minutes, detailed_breakdown = database.get_monthly_report(user_id)
-    
-    if total_minutes == 0:
-        await update.effective_message.reply_text("You haven't recorded any work sessions this month.")
+    log.info(f"Generating weekly report for user {user_id}, offset {offset}")
+    week_start_date, total_minutes, daily_breakdown, detailed_project_task_breakdown = database.get_weekly_report(user_id, offset=offset)
+
+    raw_title = _get_report_title('weekly', week_start_date, offset)
+    title = escape_markdown(raw_title, version=2) # Escape title
+    report = f"📈 {title}\n\n"
+
+    if week_start_date is None:
+        report += "Could not retrieve report data\."
+        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
         return
-    
-    current_month = datetime.now().strftime("%B %Y")
-    report = f"📅 *Monthly Report: {escape_markdown(current_month, version=2)}*\n\n"
-    report += f"Total time this month: *{total_minutes:.1f} minutes* ({total_minutes/60:.1f} hours)\n\n"
-    
-    if detailed_breakdown:
-        report += "*Project & Task Breakdown:*\n"
-        for project_data in detailed_breakdown:
-            proj_name = escape_markdown(project_data['project_name'], version=2)
-            proj_mins = project_data['project_minutes']
-            try:
-                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
-                report += f"• *{proj_name}:* {proj_mins:.1f} min ({percentage:.1f}%)\n"
-            except ZeroDivisionError:
-                report += f"• *{proj_name}:* {proj_mins:.1f} min\n"
-                
-            for task_data in project_data['tasks']:
-                task_name = escape_markdown(task_data['task_name'], version=2)
-                task_mins = task_data['task_minutes']
-                report += f"    \- {task_name}: {task_mins:.1f} min\n"
+
+    if total_minutes == 0:
+        report += "No work sessions recorded for this week\."
     else:
-        report += "No specific project/task time recorded this month\."
+        report += f"Total time this week: *{escape_markdown(str(round(total_minutes, 1)), version=2)} minutes*\n\n"
+        
+        if daily_breakdown:
+            report += "*Daily Breakdown:*\n"
+            for date_str, minutes in daily_breakdown:
+                minutes_str = escape_markdown(str(round(minutes, 1)), version=2)
+                try:
+                    date_obj_str = escape_markdown(datetime.fromisoformat(date_str).strftime("%a, %b %d"), version=2)
+                    report += f"• {date_obj_str}: {minutes_str} min\n"
+                except (ValueError, TypeError):
+                    report += f"• {escape_markdown(date_str, version=2)}: {minutes_str} min\n"
+            report += "\n"
+
+        if detailed_project_task_breakdown:
+            report += "*Project & Task Breakdown:*\n"
+            for project_data in detailed_project_task_breakdown:
+                proj_name = escape_markdown(project_data['project_name'], version=2)
+                proj_mins_str = escape_markdown(str(round(project_data['project_minutes'], 1)), version=2)
+                report_line = f"• *{proj_name}:* {proj_mins_str} min"
+                try:
+                    percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
+                    percentage_str = escape_markdown(f"({percentage:.1f}%)", version=2)
+                    report_line += f" {percentage_str}"
+                except ZeroDivisionError:
+                     pass
+                report += report_line + "\n"
+
+                for task_data in project_data['tasks']:
+                    task_name = escape_markdown(task_data['task_name'], version=2)
+                    task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
+                    report += f"    \- {task_name}: {task_mins_str} min\n"
+        else:
+             report += "No specific project/task time recorded for this week\."
+
+    # Navigation Buttons
+    prev_offset = offset - 1
+    next_offset = offset + 1
+    keyboard = [[
+        InlineKeyboardButton("⬅️ Previous Week", callback_data=f"report_nav:weekly:{prev_offset}"),
+        InlineKeyboardButton("Next Week ➡️", callback_data=f"report_nav:weekly:{next_offset}")
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
-        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+        else:
+            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
     except Exception as e:
-        log.error(f"Failed to send monthly report for user {user_id} with MarkdownV2: {e}")
-        await update.effective_message.reply_text(report)
+        log.error(f"Failed to send/edit weekly report for user {user_id} with MarkdownV2: {e}")
+        if not update.callback_query:
+            await update.effective_message.reply_text(report, reply_markup=reply_markup)
+
+async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, offset: int = 0):
+    """Sends the monthly report with navigation."""
+    user_id = update.effective_user.id
+    log.info(f"Generating monthly report for user {user_id}, offset {offset}")
+    month_start_date, total_minutes, detailed_breakdown = database.get_monthly_report(user_id, offset=offset)
+
+    raw_title = _get_report_title('monthly', month_start_date, offset)
+    title = escape_markdown(raw_title, version=2) # Escape title
+    report = f"📅 {title}\n\n"
+
+    if month_start_date is None:
+        report += "Could not retrieve report data\."
+        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        return
+
+    if total_minutes == 0:
+        report += "No work sessions recorded for this month\."
+    else:
+        total_mins_str = escape_markdown(str(round(total_minutes, 1)), version=2)
+        total_hours_str = escape_markdown(str(round(total_minutes/60, 1)), version=2)
+        report += f"Total time this month: *{total_mins_str} minutes* \({total_hours_str} hours\)\n\n" # Escape () around hours
+        
+        if detailed_breakdown:
+            report += "*Project & Task Breakdown:*\n"
+            for project_data in detailed_breakdown:
+                proj_name = escape_markdown(project_data['project_name'], version=2)
+                proj_mins_str = escape_markdown(str(round(project_data['project_minutes'], 1)), version=2)
+                report_line = f"• *{proj_name}:* {proj_mins_str} min"
+                try:
+                    percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
+                    percentage_str = escape_markdown(f"({percentage:.1f}%)", version=2)
+                    report_line += f" {percentage_str}"
+                except ZeroDivisionError:
+                    pass
+                report += report_line + "\n"
+                    
+                for task_data in project_data['tasks']:
+                    task_name = escape_markdown(task_data['task_name'], version=2)
+                    task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
+                    report += f"    \- {task_name}: {task_mins_str} min\n"
+        else:
+            report += "No specific project/task time recorded for this month\."
+
+    # Navigation Buttons
+    prev_offset = offset - 1
+    next_offset = offset + 1
+    keyboard = [[
+        InlineKeyboardButton("⬅️ Previous Month", callback_data=f"report_nav:monthly:{prev_offset}"),
+        InlineKeyboardButton("Next Month ➡️", callback_data=f"report_nav:monthly:{next_offset}")
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    try:
+        if update.callback_query:
+            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+        else:
+             await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+    except Exception as e:
+        log.error(f"Failed to send/edit monthly report for user {user_id} with MarkdownV2: {e}")
+        if not update.callback_query:
+            await update.effective_message.reply_text(report, reply_markup=reply_markup)
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Initial call to report_command (no args or specific type) shows buttons
     user_id = update.effective_user.id
     log.info(f"/report command received from user {user_id} with args: {context.args}")
     try:
         if not context.args or len(context.args) == 0:
-            keyboard = [ [InlineKeyboardButton("📊 Daily", callback_data="report_daily")],
-                         [InlineKeyboardButton("📈 Weekly", callback_data="report_weekly")],
-                         [InlineKeyboardButton("📅 Monthly", callback_data="report_monthly")] ]
+            keyboard = [ 
+                # Change callback data to include offset 0 for initial view
+                [InlineKeyboardButton("📊 Daily (Today)", callback_data="report_nav:daily:0")],
+                [InlineKeyboardButton("📈 Weekly (This Week)", callback_data="report_nav:weekly:0")],
+                [InlineKeyboardButton("📅 Monthly (This Month)", callback_data="report_nav:monthly:0")]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("Which work report would you like?", reply_markup=reply_markup)
+            await update.message.reply_text("Which work report period would you like?", reply_markup=reply_markup)
             return
         
+        # Handling direct calls like /report daily (less common now with buttons)
         report_type = context.args[0].lower()
-        if report_type == "daily": await report_daily(update, context)
-        elif report_type == "weekly": await report_weekly(update, context)
-        elif report_type == "monthly": await report_monthly(update, context)
-        else: await update.message.reply_text("Unknown report type. Options: daily, weekly, monthly.")
+        offset = 0 # Default to current period if called directly
+        if report_type == "daily": await report_daily(update, context, offset=offset)
+        elif report_type == "weekly": await report_weekly(update, context, offset=offset)
+        elif report_type == "monthly": await report_monthly(update, context, offset=offset)
+        else: await update.message.reply_text("Unknown report type. Use the buttons or specify daily, weekly, monthly.")
     except Exception as e:
         log.error(f"Error in report_command for user {user_id}: {e}", exc_info=True)
         await update.message.reply_text("An error occurred processing the report command.")
