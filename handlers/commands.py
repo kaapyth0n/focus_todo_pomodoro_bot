@@ -1,5 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown # Import escape_markdown
+from telegram import constants # For ParseMode
 import database
 from datetime import datetime, timedelta
 from config import timer_states, DOMAIN_URL
@@ -8,6 +10,7 @@ import sqlite3
 from . import google_auth as google_auth_handlers # Import the module itself
 from . import admin as admin_handlers # Import admin handlers
 from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
+import math # For formatting time
 
 log = logging.getLogger(__name__)
 
@@ -768,90 +771,127 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Report Commands ---
 async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends the daily report with project and task breakdown."""
     user_id = update.effective_user.id
     log.info(f"Generating daily report for user {user_id}")
+    total_minutes, detailed_breakdown = database.get_daily_report(user_id)
+    
+    if total_minutes == 0:
+        await update.effective_message.reply_text("You haven't recorded any work sessions today.")
+        return
+        
+    report = f"📊 *Daily Report*\n\n"
+    report += f"Total time today: *{total_minutes:.1f} minutes*\n\n"
+    
+    if detailed_breakdown:
+        report += "*Project & Task Breakdown:*\n"
+        for project_data in detailed_breakdown:
+            proj_name = escape_markdown(project_data['project_name'], version=2)
+            proj_mins = project_data['project_minutes']
+            try:
+                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
+                report += f"• *{proj_name}:* {proj_mins:.1f} min ({percentage:.1f}%)\n"
+            except ZeroDivisionError:
+                report += f"• *{proj_name}:* {proj_mins:.1f} min\n"
+                
+            for task_data in project_data['tasks']:
+                task_name = escape_markdown(task_data['task_name'], version=2)
+                task_mins = task_data['task_minutes']
+                report += f"    \- {task_name}: {task_mins:.1f} min\n"
+    else:
+        report += "No specific project/task time recorded today\."
+
     try:
-        total_minutes, project_breakdown = database.get_daily_report(user_id)
-        
-        if total_minutes == 0:
-            await update.message.reply_text("No work sessions recorded today.")
-            return
-            
-        report = f"📊 *Daily Report*\n\nTotal work time today: *{total_minutes:.1f} minutes*\n\n"
-        if project_breakdown:
-            report += "*Project Breakdown:*\n"
-            for project_name, minutes in project_breakdown:
-                percentage = (minutes / total_minutes) * 100 if total_minutes > 0 else 0
-                report += f"• {project_name}: {minutes:.1f} min ({percentage:.1f}%)\n"
-        
-        await update.message.reply_text(report, parse_mode='Markdown')
-        log.debug(f"Sent daily report to user {user_id}")
-    except sqlite3.Error as e:
-        log.error(f"DB error generating daily report for user {user_id}: {e}")
-        await update.message.reply_text("Failed to generate daily report due to a database error.")
+        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
     except Exception as e:
-        log.error(f"Error in report_daily for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred generating the report.")
+        log.error(f"Failed to send daily report for user {user_id} with MarkdownV2: {e}")
+        # Fallback to plain text if Markdown fails
+        await update.effective_message.reply_text(report) # Send plain text
 
 async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends the weekly report with daily, project, and task breakdown."""
     user_id = update.effective_user.id
     log.info(f"Generating weekly report for user {user_id}")
+    total_minutes, daily_breakdown, detailed_project_task_breakdown = database.get_weekly_report(user_id)
+    
+    if total_minutes == 0:
+        await update.effective_message.reply_text("You haven't recorded any work sessions this week.")
+        return
+    
+    report = f"📈 *Weekly Report*\n\n"
+    report += f"Total time this week: *{total_minutes:.1f} minutes*\n\n"
+    
+    if daily_breakdown:
+        report += "*Daily Breakdown:*\n"
+        for date_str, minutes in daily_breakdown:
+            try:
+                date_obj = datetime.fromisoformat(date_str).strftime("%a, %b %d")
+                report += f"• {escape_markdown(date_obj, version=2)}: {minutes:.1f} min\n"
+            except (ValueError, TypeError):
+                report += f"• {escape_markdown(date_str, version=2)}: {minutes:.1f} min\n"
+        report += "\n"
+
+    if detailed_project_task_breakdown:
+        report += "*Project & Task Breakdown:*\n"
+        for project_data in detailed_project_task_breakdown:
+            proj_name = escape_markdown(project_data['project_name'], version=2)
+            proj_mins = project_data['project_minutes']
+            try:
+                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
+                report += f"• *{proj_name}:* {proj_mins:.1f} min ({percentage:.1f}%)\n"
+            except ZeroDivisionError:
+                 report += f"• *{proj_name}:* {proj_mins:.1f} min\n"
+
+            for task_data in project_data['tasks']:
+                task_name = escape_markdown(task_data['task_name'], version=2)
+                task_mins = task_data['task_minutes']
+                report += f"    \- {task_name}: {task_mins:.1f} min\n"
+    else:
+        report += "No specific project/task time recorded this week\."
+    
     try:
-        total_minutes, daily_breakdown, project_breakdown = database.get_weekly_report(user_id)
-        
-        if total_minutes == 0:
-            await update.message.reply_text("No work sessions recorded this week.")
-            return
-        
-        report = f"📈 *Weekly Report*\n\nTotal work time this week: *{total_minutes:.1f} minutes*\n\n"
-        if daily_breakdown:
-            report += "*Daily Breakdown:*\n"
-            for date, minutes in daily_breakdown:
-                try: date_obj = datetime.fromisoformat(date).strftime("%a, %b %d")
-                except: date_obj = date
-                report += f"• {date_obj}: {minutes:.1f} min\n"
-        
-        if project_breakdown:
-            report += "\n*Project Breakdown:*\n"
-            for project_name, minutes in project_breakdown:
-                percentage = (minutes / total_minutes) * 100 if total_minutes > 0 else 0
-                report += f"• {project_name}: {minutes:.1f} min ({percentage:.1f}%)\n"
-        
-        await update.message.reply_text(report, parse_mode='Markdown')
-        log.debug(f"Sent weekly report to user {user_id}")
-    except sqlite3.Error as e:
-        log.error(f"DB error generating weekly report for user {user_id}: {e}")
-        await update.message.reply_text("Failed to generate weekly report due to a database error.")
+        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
     except Exception as e:
-        log.error(f"Error in report_weekly for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred generating the report.")
+        log.error(f"Failed to send weekly report for user {user_id} with MarkdownV2: {e}")
+        await update.effective_message.reply_text(report)
 
 async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends the monthly report with project and task breakdown."""
     user_id = update.effective_user.id
     log.info(f"Generating monthly report for user {user_id}")
+    total_minutes, detailed_breakdown = database.get_monthly_report(user_id)
+    
+    if total_minutes == 0:
+        await update.effective_message.reply_text("You haven't recorded any work sessions this month.")
+        return
+    
+    current_month = datetime.now().strftime("%B %Y")
+    report = f"📅 *Monthly Report: {escape_markdown(current_month, version=2)}*\n\n"
+    report += f"Total time this month: *{total_minutes:.1f} minutes* ({total_minutes/60:.1f} hours)\n\n"
+    
+    if detailed_breakdown:
+        report += "*Project & Task Breakdown:*\n"
+        for project_data in detailed_breakdown:
+            proj_name = escape_markdown(project_data['project_name'], version=2)
+            proj_mins = project_data['project_minutes']
+            try:
+                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
+                report += f"• *{proj_name}:* {proj_mins:.1f} min ({percentage:.1f}%)\n"
+            except ZeroDivisionError:
+                report += f"• *{proj_name}:* {proj_mins:.1f} min\n"
+                
+            for task_data in project_data['tasks']:
+                task_name = escape_markdown(task_data['task_name'], version=2)
+                task_mins = task_data['task_minutes']
+                report += f"    \- {task_name}: {task_mins:.1f} min\n"
+    else:
+        report += "No specific project/task time recorded this month\."
+
     try:
-        total_minutes, project_breakdown = database.get_monthly_report(user_id)
-        
-        if total_minutes == 0:
-            await update.message.reply_text("No work sessions recorded this month.")
-            return
-        
-        current_month = datetime.now().strftime("%B %Y")
-        report = f"📅 *Monthly Report: {current_month}*\n\nTotal work time this month: *{total_minutes:.1f} minutes* ({total_minutes/60:.1f} hours)\n\n"
-        if project_breakdown:
-            report += "*Project Breakdown:*\n"
-            for project_name, minutes in project_breakdown:
-                percentage = (minutes / total_minutes) * 100 if total_minutes > 0 else 0
-                report += f"• {project_name}: {minutes:.1f} min ({percentage:.1f}%)\n"
-        
-        await update.message.reply_text(report, parse_mode='Markdown')
-        log.debug(f"Sent monthly report to user {user_id}")
-    except sqlite3.Error as e:
-        log.error(f"DB error generating monthly report for user {user_id}: {e}")
-        await update.message.reply_text("Failed to generate monthly report due to a database error.")
+        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
     except Exception as e:
-        log.error(f"Error in report_monthly for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred generating the report.")
+        log.error(f"Failed to send monthly report for user {user_id} with MarkdownV2: {e}")
+        await update.effective_message.reply_text(report)
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id

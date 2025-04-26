@@ -3,6 +3,7 @@ from datetime import datetime
 import logging # Add logging
 import traceback
 import json # Needed for credentials handling
+from collections import defaultdict # Import defaultdict
 
 DB_NAME = 'focus_pomodoro.db'
 
@@ -468,50 +469,77 @@ def add_pomodoro_session(user_id, start_time, duration_minutes, completed=0, ses
             conn.close()
     return session_id
 
+# Helper function to structure report data
+def _structure_report_data(rows):
+    """Structures flat SQL rows into a nested project/task breakdown."""
+    detailed_breakdown = defaultdict(lambda: {'project_minutes': 0.0, 'tasks': []})
+    total_minutes = 0.0
+    for proj_name, task_name, task_mins in rows:
+        if task_mins is None: continue # Skip if duration is somehow NULL
+        task_mins = float(task_mins) # Ensure float
+        total_minutes += task_mins
+        detailed_breakdown[proj_name]['project_minutes'] += task_mins
+        detailed_breakdown[proj_name]['tasks'].append({'task_name': task_name or 'Unnamed Task', 'task_minutes': task_mins})
+
+    # Convert dict to list of dicts, sorted by project time
+    final_breakdown = sorted(
+        [
+            {
+                'project_name': name,
+                'project_minutes': data['project_minutes'],
+                # Sort tasks within project by time
+                'tasks': sorted(data['tasks'], key=lambda x: x['task_minutes'], reverse=True)
+            }
+            for name, data in detailed_breakdown.items()
+        ],
+        key=lambda x: x['project_minutes'],
+        reverse=True
+    )
+    return total_minutes, final_breakdown
+
 def get_daily_report(user_id):
     """
-    Get the total time worked today for a user
-    
-    Parameters:
-    user_id (int): Telegram user ID
+    Get the total time worked today and detailed project/task breakdown.
     
     Returns:
-    tuple: (total_minutes, project_breakdown)
-        total_minutes (float): Total minutes worked today
-        project_breakdown (list): List of (project_name, minutes) tuples
+    tuple: (total_minutes, detailed_breakdown)
+        total_minutes (float): Total minutes worked today.
+        detailed_breakdown (list): List of project dicts, each with 'project_name', 
+                                  'project_minutes', and 'tasks' list 
+                                  (each task dict has 'task_name', 'task_minutes').
     """
     conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
-        # Get today's date in UTC to be safe
         today = datetime.utcnow().date().isoformat()
         
-        # Get total WORK minutes worked today
+        # Get detailed breakdown by project and task for today
         cursor.execute('''
-            SELECT SUM(COALESCE(work_duration, 0)) 
-            FROM pomodoro_sessions
-            WHERE user_id = ? AND DATE(start_time) = DATE(?) AND session_type = 'work'
-        ''', (user_id, today))
-        
-        total_minutes = cursor.fetchone()[0] or 0.0
-        
-        # Get breakdown by project (only for work sessions)
-        cursor.execute('''
-            SELECT p.project_name, SUM(COALESCE(ps.work_duration, 0))
+            SELECT 
+                p.project_name, 
+                t.task_name, 
+                SUM(COALESCE(ps.work_duration, 0)) as task_minutes
             FROM pomodoro_sessions ps
             JOIN projects p ON ps.project_id = p.project_id
-            WHERE ps.user_id = ? AND DATE(ps.start_time) = DATE(?) AND ps.session_type = 'work'
-            GROUP BY ps.project_id, p.project_name
-            ORDER BY SUM(COALESCE(ps.work_duration, 0)) DESC
+            JOIN tasks t ON ps.task_id = t.task_id
+            WHERE ps.user_id = ? 
+              AND DATE(ps.start_time) = DATE(?) 
+              AND ps.session_type = 'work'
+              AND ps.project_id IS NOT NULL
+              AND ps.task_id IS NOT NULL
+            GROUP BY ps.project_id, ps.task_id, p.project_name, t.task_name
+            ORDER BY p.project_name, task_minutes DESC
         ''', (user_id, today))
         
-        project_breakdown = cursor.fetchall()
+        rows = cursor.fetchall()
+        total_minutes, detailed_breakdown = _structure_report_data(rows)
         
-        return (total_minutes, project_breakdown)
+        return (total_minutes, detailed_breakdown)
+        
     except sqlite3.Error as e:
-        log.error(f"Database error getting daily report for user {user_id}: {e}")
+        log.error(f"Database error getting daily report for user {user_id}: {e}", exc_info=True)
         return (0.0, []) # Return empty report on error
     finally:
         if conn:
@@ -519,68 +547,71 @@ def get_daily_report(user_id):
 
 def get_weekly_report(user_id):
     """
-    Get the total time worked this week (Mon-Sun) for a user
-    
-    Parameters:
-    user_id (int): Telegram user ID
+    Get weekly time worked: total, breakdown by day, and detailed project/task breakdown.
     
     Returns:
-    tuple: (total_minutes, daily_breakdown, project_breakdown)
-        total_minutes (float): Total minutes worked this week
-        daily_breakdown (list): List of (date, minutes) tuples
-        project_breakdown (list): List of (project_name, minutes) tuples
+    tuple: (total_minutes, daily_breakdown, detailed_project_task_breakdown)
+        total_minutes (float): Total minutes worked this week.
+        daily_breakdown (list): List of (date_str, minutes) tuples.
+        detailed_project_task_breakdown (list): Project/task breakdown like in get_daily_report.
     """
     conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row  # Allows accessing columns by name
+        conn.row_factory = sqlite3.Row  # Use Row factory for daily breakdown
         cursor = conn.cursor()
         
-        # Get total WORK minutes worked this week
-        cursor.execute('''
-            SELECT SUM(COALESCE(work_duration, 0)) as total
-            FROM pomodoro_sessions
-            WHERE user_id = ? 
-            AND DATE(start_time) >= DATE('now', 'weekday 0', '-6 days') -- Previous Monday
-            AND DATE(start_time) < DATE('now', 'weekday 0', '+1 day') -- Next Monday
-            AND session_type = 'work'
-        ''', (user_id,))
-        
-        result = cursor.fetchone()
-        total_minutes = result['total'] if result and result['total'] else 0.0
-        
-        # Get WORK breakdown by day
-        cursor.execute('''
+        # Define week start/end
+        week_start_sql = "DATE('now', 'weekday 0', '-6 days')" # Monday of current week
+        week_end_sql = "DATE('now', 'weekday 0', '+1 day')" # Monday of next week
+
+        # Get WORK breakdown by day (keep this part)
+        cursor.execute(f'''
             SELECT DATE(start_time) as day, SUM(COALESCE(work_duration, 0)) as minutes
             FROM pomodoro_sessions
             WHERE user_id = ?
-            AND DATE(start_time) >= DATE('now', 'weekday 0', '-6 days')
-            AND DATE(start_time) < DATE('now', 'weekday 0', '+1 day')
+            AND DATE(start_time) >= {week_start_sql}
+            AND DATE(start_time) < {week_end_sql}
             AND session_type = 'work'
             GROUP BY day
             ORDER BY day
         ''', (user_id,))
-        
         daily_breakdown = [(row['day'], row['minutes']) for row in cursor.fetchall()]
         
-        # Get WORK breakdown by project
-        cursor.execute('''
-            SELECT p.project_name, SUM(COALESCE(ps.work_duration, 0)) as minutes
+        # Reset row_factory to get tuples for project/task breakdown
+        conn.row_factory = None 
+        cursor = conn.cursor() 
+
+        # Get detailed project/task breakdown for the week
+        cursor.execute(f'''
+            SELECT 
+                p.project_name, 
+                t.task_name, 
+                SUM(COALESCE(ps.work_duration, 0)) as task_minutes
             FROM pomodoro_sessions ps
             JOIN projects p ON ps.project_id = p.project_id
-            WHERE ps.user_id = ?
-            AND DATE(ps.start_time) >= DATE('now', 'weekday 0', '-6 days')
-            AND DATE(ps.start_time) < DATE('now', 'weekday 0', '+1 day')
-            AND ps.session_type = 'work'
-            GROUP BY ps.project_id, p.project_name
-            ORDER BY minutes DESC
+            JOIN tasks t ON ps.task_id = t.task_id
+            WHERE ps.user_id = ? 
+              AND DATE(ps.start_time) >= {week_start_sql}
+              AND DATE(ps.start_time) < {week_end_sql}
+              AND ps.session_type = 'work'
+              AND ps.project_id IS NOT NULL
+              AND ps.task_id IS NOT NULL
+            GROUP BY ps.project_id, ps.task_id, p.project_name, t.task_name
+            ORDER BY p.project_name, task_minutes DESC
         ''', (user_id,))
         
-        project_breakdown = [(row['project_name'], row['minutes']) for row in cursor.fetchall()]
+        rows = cursor.fetchall()
+        total_minutes, detailed_project_task_breakdown = _structure_report_data(rows)
+
+        # Note: total_minutes derived from _structure_report_data might slightly differ 
+        # from summing daily_breakdown if there were rounding differences, but should be close.
+        # We use the one from the detailed breakdown as the primary total.
         
-        return (total_minutes, daily_breakdown, project_breakdown)
+        return (total_minutes, daily_breakdown, detailed_project_task_breakdown)
+
     except sqlite3.Error as e:
-        log.error(f"Database error getting weekly report for user {user_id}: {e}")
+        log.error(f"Database error getting weekly report for user {user_id}: {e}", exc_info=True)
         return (0.0, [], [])
     finally:
         if conn:
@@ -588,59 +619,49 @@ def get_weekly_report(user_id):
 
 def get_monthly_report(user_id):
     """
-    Get the total time worked this month for a user
-    
-    Parameters:
-    user_id (int): Telegram user ID
+    Get the total time worked this month and detailed project/task breakdown.
     
     Returns:
-    tuple: (total_minutes, project_breakdown)
-        total_minutes (float): Total minutes worked this month
-        project_breakdown (list): List of (project_name, minutes) tuples
+    tuple: (total_minutes, detailed_breakdown) 
+           Format is the same as get_daily_report.
     """
     conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Get the current month's start and end dates (using SQLite functions)
-        cursor.execute("SELECT DATE('now', 'start of month') as start_date")
-        start_date = cursor.fetchone()['start_date']
-        cursor.execute("SELECT DATE('now', 'start of month', '+1 month') as next_month_start")
-        next_month_start = cursor.fetchone()['next_month_start']
+        # Get the current month's start and end dates
+        # Using a subquery to get dates avoids multiple executes
+        date_query = "SELECT DATE('now', 'start of month') as start_date, DATE('now', 'start of month', '+1 month') as next_month_start"
         
-        # Get total WORK minutes worked this month
-        cursor.execute('''
-            SELECT SUM(COALESCE(work_duration, 0)) as total
-            FROM pomodoro_sessions
-            WHERE user_id = ? 
-            AND DATE(start_time) >= ? 
-            AND DATE(start_time) < ?
-            AND session_type = 'work'
-        ''', (user_id, start_date, next_month_start))
-        
-        result = cursor.fetchone()
-        total_minutes = result['total'] if result and result['total'] else 0.0
-        
-        # Get WORK breakdown by project
-        cursor.execute('''
-            SELECT p.project_name, SUM(COALESCE(ps.work_duration, 0)) as minutes
+        # Get detailed project/task breakdown for the month
+        cursor.execute(f'''
+            WITH MonthDates AS ({date_query})
+            SELECT 
+                p.project_name, 
+                t.task_name, 
+                SUM(COALESCE(ps.work_duration, 0)) as task_minutes
             FROM pomodoro_sessions ps
             JOIN projects p ON ps.project_id = p.project_id
-            WHERE ps.user_id = ?
-            AND DATE(ps.start_time) >= ? 
-            AND DATE(ps.start_time) < ?
-            AND ps.session_type = 'work'
-            GROUP BY ps.project_id, p.project_name
-            ORDER BY minutes DESC
-        ''', (user_id, start_date, next_month_start))
+            JOIN tasks t ON ps.task_id = t.task_id
+            CROSS JOIN MonthDates md -- Use the dates from the CTE
+            WHERE ps.user_id = ? 
+              AND DATE(ps.start_time) >= md.start_date
+              AND DATE(ps.start_time) < md.next_month_start
+              AND ps.session_type = 'work'
+              AND ps.project_id IS NOT NULL
+              AND ps.task_id IS NOT NULL
+            GROUP BY ps.project_id, ps.task_id, p.project_name, t.task_name
+            ORDER BY p.project_name, task_minutes DESC
+        ''', (user_id,))
         
-        project_breakdown = [(row['project_name'], row['minutes']) for row in cursor.fetchall()]
+        rows = cursor.fetchall()
+        total_minutes, detailed_breakdown = _structure_report_data(rows)
         
-        return (total_minutes, project_breakdown)
+        return (total_minutes, detailed_breakdown)
+
     except sqlite3.Error as e:
-        log.error(f"Database error getting monthly report for user {user_id}: {e}")
+        log.error(f"Database error getting monthly report for user {user_id}: {e}", exc_info=True)
         return (0.0, [])
     finally:
         if conn:
