@@ -75,7 +75,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error(f"DB Error in start for user {user.id}: {e}")
         await update.message.reply_text("An error occurred connecting to the database. Please try again later.")
     except Exception as e:
-        log.error(f"Error in start command for user {user.id}: {e}", exc_info=True)
+        log.error(f"Error in start command for user {user_id}: {e}", exc_info=True)
         await update.message.reply_text("An unexpected error occurred. Please try again later.")
 
 # --- Project Management Commands ---
@@ -771,28 +771,38 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Helper Function for Report Titles --- 
 def _get_report_title(report_type: str, report_date_str: str | None, offset: int) -> str:
-    # NOTE: This helper intentionally returns unescaped titles with markdown.
-    # The calling function is responsible for escaping before sending.
-    if report_date_str is None: return f"*{report_type.capitalize()} Report \(Error\)*"
+    """Generates a user-friendly title with MarkdownV2 escaped content."""
+    title_prefix = f"*{report_type.capitalize()} Report*"
+    if report_date_str is None:
+        return f"{title_prefix} \(Error\)" # Manually escape () for error
+    
     try:
         report_date = datetime.fromisoformat(report_date_str)
         if report_type == 'daily':
-            if offset == 0: return "*Daily Report \(Today\)*"
-            if offset == -1: return "*Daily Report \(Yesterday\)*"
-            # Escape date part separately if needed, but title escape should handle it.
-            return f"*Daily Report \({report_date.strftime('%a, %b %d, %Y')}\)*"
+            if offset == 0: status_str = "Today"
+            elif offset == -1: status_str = "Yesterday"
+            else: status_str = report_date.strftime('%a, %b %d, %Y')
+            # Escape the status string, then add escaped parentheses
+            escaped_status = escape_markdown(status_str, version=2)
+            return f"{title_prefix} \({escaped_status}\)" 
         elif report_type == 'weekly':
-            if offset == 0: return "*Weekly Report \(This Week\)*"
-            if offset == -1: return "*Weekly Report \(Last Week\)*"
-            week_end_date = report_date + timedelta(days=6)
-            return f"*Weekly Report \({report_date.strftime('%b %d')} \- {week_end_date.strftime('%b %d, %Y')}\)*"
+            if offset == 0: status_str = "This Week"
+            elif offset == -1: status_str = "Last Week"
+            else:
+                week_end_date = report_date + timedelta(days=6)
+                status_str = f"{report_date.strftime('%b %d')} - {week_end_date.strftime('%b %d, %Y')}"
+            # Escape the status string, then add escaped parentheses
+            escaped_status = escape_markdown(status_str, version=2)
+            return f"{title_prefix} \({escaped_status}\)"
         elif report_type == 'monthly':
-            if offset == 0: return f"*Monthly Report \({datetime.now().strftime('%B %Y')}\)*"
-            # Handles offset -1 and others correctly now
-            return f"*Monthly Report \({report_date.strftime('%B %Y')}\)*"
+            status_str = report_date.strftime('%B %Y') # Always show month/year
+            # Escape the status string, then add escaped parentheses
+            escaped_status = escape_markdown(status_str, version=2)
+            return f"{title_prefix} \({escaped_status}\)"
     except ValueError:
-         return f"*{report_type.capitalize()} Report \(Date Error\)*"
-    return f"*{report_type.capitalize()} Report*" # Fallback
+         return f"{title_prefix} \(Date Error\)" # Manually escape () for error
+    
+    return title_prefix # Fallback without extra info
 
 # --- Report Commands ---
 
@@ -802,20 +812,23 @@ async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE, offse
     log.info(f"Generating daily report for user {user_id}, offset {offset}")
     report_date, total_minutes, detailed_breakdown = database.get_daily_report(user_id, offset=offset)
     
-    # Get title from helper (contains markdown * and unescaped chars like ()))
-    raw_title = _get_report_title('daily', report_date, offset)
-    # Escape the generated title for final output
-    title = escape_markdown(raw_title, version=2)
+    # Get the correctly pre-escaped title from the helper
+    title = _get_report_title('daily', report_date, offset) 
     report = f"📊 {title}\n\n"
 
     if report_date is None:
         report += "Could not retrieve report data\."
-        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        # Send immediately if data error
+        if update.callback_query:
+            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        else:
+            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
         return
         
     if total_minutes == 0:
         report += "No work sessions recorded for this day\."
     else:
+        # Escape numeric values and percentage parens here
         report += f"Total time: *{escape_markdown(str(round(total_minutes, 1)), version=2)} minutes*\n\n"
         if detailed_breakdown:
             report += "*Project & Task Breakdown:*\n"
@@ -825,13 +838,11 @@ async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE, offse
                 report_line = f"• *{proj_name}:* {proj_mins_str} min"
                 try:
                     percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
-                    # Escape the percentage part
                     percentage_str = escape_markdown(f"({percentage:.1f}%)", version=2)
                     report_line += f" {percentage_str}"
                 except ZeroDivisionError:
-                    pass # Don't add percentage if total is zero
+                    pass 
                 report += report_line + "\n"
-                    
                 for task_data in project_data['tasks']:
                     task_name = escape_markdown(task_data['task_name'], version=2)
                     task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
@@ -849,16 +860,15 @@ async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE, offse
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
-        # Edit message if called from callback, otherwise send new
         if update.callback_query:
             await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
         else:
             await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
     except Exception as e:
         log.error(f"Failed to send/edit daily report for user {user_id} with MarkdownV2: {e}")
-        # Fallback for sending might be tricky if edit failed
-        if not update.callback_query:
-             await update.effective_message.reply_text(report, reply_markup=reply_markup)
+        if not update.callback_query: # Fallback only if sending new message
+             try: await update.effective_message.reply_text(report, reply_markup=reply_markup) # Try sending without markdown
+             except: log.error("Fallback report sending failed.")
 
 async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offset: int = 0):
     """Sends the weekly report with navigation."""
@@ -866,20 +876,22 @@ async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offs
     log.info(f"Generating weekly report for user {user_id}, offset {offset}")
     week_start_date, total_minutes, daily_breakdown, detailed_project_task_breakdown = database.get_weekly_report(user_id, offset=offset)
 
-    raw_title = _get_report_title('weekly', week_start_date, offset)
-    title = escape_markdown(raw_title, version=2) # Escape title
+    # Get the correctly pre-escaped title from the helper
+    title = _get_report_title('weekly', week_start_date, offset)
     report = f"📈 {title}\n\n"
 
     if week_start_date is None:
         report += "Could not retrieve report data\."
-        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        else:
+            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
         return
 
     if total_minutes == 0:
         report += "No work sessions recorded for this week\."
     else:
         report += f"Total time this week: *{escape_markdown(str(round(total_minutes, 1)), version=2)} minutes*\n\n"
-        
         if daily_breakdown:
             report += "*Daily Breakdown:*\n"
             for date_str, minutes in daily_breakdown:
@@ -890,7 +902,6 @@ async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offs
                 except (ValueError, TypeError):
                     report += f"• {escape_markdown(date_str, version=2)}: {minutes_str} min\n"
             report += "\n"
-
         if detailed_project_task_breakdown:
             report += "*Project & Task Breakdown:*\n"
             for project_data in detailed_project_task_breakdown:
@@ -904,7 +915,6 @@ async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offs
                 except ZeroDivisionError:
                      pass
                 report += report_line + "\n"
-
                 for task_data in project_data['tasks']:
                     task_name = escape_markdown(task_data['task_name'], version=2)
                     task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
@@ -929,7 +939,8 @@ async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offs
     except Exception as e:
         log.error(f"Failed to send/edit weekly report for user {user_id} with MarkdownV2: {e}")
         if not update.callback_query:
-            await update.effective_message.reply_text(report, reply_markup=reply_markup)
+             try: await update.effective_message.reply_text(report, reply_markup=reply_markup)
+             except: log.error("Fallback report sending failed.")
 
 async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, offset: int = 0):
     """Sends the monthly report with navigation."""
@@ -937,13 +948,16 @@ async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, off
     log.info(f"Generating monthly report for user {user_id}, offset {offset}")
     month_start_date, total_minutes, detailed_breakdown = database.get_monthly_report(user_id, offset=offset)
 
-    raw_title = _get_report_title('monthly', month_start_date, offset)
-    title = escape_markdown(raw_title, version=2) # Escape title
+    # Get the correctly pre-escaped title from the helper
+    title = _get_report_title('monthly', month_start_date, offset)
     report = f"📅 {title}\n\n"
 
     if month_start_date is None:
         report += "Could not retrieve report data\."
-        await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        else:
+            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
         return
 
     if total_minutes == 0:
@@ -951,7 +965,8 @@ async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, off
     else:
         total_mins_str = escape_markdown(str(round(total_minutes, 1)), version=2)
         total_hours_str = escape_markdown(str(round(total_minutes/60, 1)), version=2)
-        report += f"Total time this month: *{total_mins_str} minutes* \({total_hours_str} hours\)\n\n" # Escape () around hours
+        # Manually escape the parentheses around hours here
+        report += f"Total time this month: *{total_mins_str} minutes* \({total_hours_str} hours\)\n\n" 
         
         if detailed_breakdown:
             report += "*Project & Task Breakdown:*\n"
@@ -966,7 +981,6 @@ async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, off
                 except ZeroDivisionError:
                     pass
                 report += report_line + "\n"
-                    
                 for task_data in project_data['tasks']:
                     task_name = escape_markdown(task_data['task_name'], version=2)
                     task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
@@ -991,7 +1005,8 @@ async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, off
     except Exception as e:
         log.error(f"Failed to send/edit monthly report for user {user_id} with MarkdownV2: {e}")
         if not update.callback_query:
-            await update.effective_message.reply_text(report, reply_markup=reply_markup)
+            try: await update.effective_message.reply_text(report, reply_markup=reply_markup)
+            except: log.error("Fallback report sending failed.")
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Initial call to report_command (no args or specific type) shows buttons
