@@ -532,10 +532,8 @@ def main():
 
     # Register command handlers from handlers.commands
     application.add_handler(CommandHandler('start', cmd_handlers.start))
-    application.add_handler(CommandHandler('create_project', cmd_handlers.create_project))
     application.add_handler(CommandHandler('select_project', cmd_handlers.select_project))
     application.add_handler(CommandHandler('list_projects', cmd_handlers.list_projects))
-    application.add_handler(CommandHandler('create_task', cmd_handlers.create_task))
     application.add_handler(CommandHandler('select_task', cmd_handlers.select_task))
     application.add_handler(CommandHandler('list_tasks', cmd_handlers.list_tasks))
     application.add_handler(CommandHandler('start_timer', cmd_handlers.start_timer))
@@ -549,7 +547,6 @@ def main():
     application.add_handler(CommandHandler('export_to_sheets', google_auth_handlers.export_to_sheets))
     
     # Register Admin Handlers
-    # Use the specific, obscure command name for initial admin setup
     application.add_handler(CommandHandler(admin_handlers.INITIAL_ADMIN_COMMAND.lstrip('/'), admin_handlers.set_initial_admin))
     application.add_handler(CommandHandler('admin_notify_toggle', admin_handlers.admin_notify_toggle))
     application.add_handler(CommandHandler('admin_stats', admin_handlers.admin_stats))
@@ -563,12 +560,32 @@ def main():
             ],
         },
         fallbacks=[CommandHandler('cancel', google_auth_handlers.cancel_oauth)],
-        # Optional: Add conversation timeout
-        # conversation_timeout=timedelta(minutes=5)
     )
-
-    # Register Google Auth Conversation Handler
     application.add_handler(google_conv_handler)
+
+    # --- Create Project Conversation Handler ---
+    create_project_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('create_project', cmd_handlers.create_project)],
+        states={
+            cmd_handlers.WAITING_PROJECT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_handlers.receive_project_name)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cmd_handlers.cancel_creation)],
+    )
+    application.add_handler(create_project_conv_handler)
+
+    # --- Create Task Conversation Handler ---
+    create_task_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('create_task', cmd_handlers.create_task)],
+        states={
+            cmd_handlers.WAITING_TASK_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_handlers.receive_task_name)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cmd_handlers.cancel_creation)],
+    )
+    application.add_handler(create_task_conv_handler)
 
     # Register reply keyboard button handlers
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_START_WORK}$'), cmd_handlers.handle_start_work_button))
@@ -576,7 +593,7 @@ def main():
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_RESUME}$'), cmd_handlers.handle_resume_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_STOP}$'), cmd_handlers.handle_stop_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_REPORT}$'), cmd_handlers.handle_report_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_BREAK_5}$'), cmd_handlers.handle_break_button)) # Add handler for break button
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_BREAK_5}$'), cmd_handlers.handle_break_button))
 
     # Register callback query handler from handlers.callbacks
     application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))

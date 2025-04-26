@@ -1,5 +1,5 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo
-from telegram.ext import ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo, User
+from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from telegram.helpers import escape_markdown # Import escape_markdown
 from telegram import constants # For ParseMode
 import database
@@ -13,6 +13,9 @@ from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
 import math # For formatting time
 
 log = logging.getLogger(__name__)
+
+# --- Conversation Handler States ---
+WAITING_PROJECT_NAME, WAITING_TASK_NAME = range(2)
 
 # --- Reply Keyboard Definition ---
 
@@ -78,43 +81,74 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error(f"Error in start command for user {user_id}: {e}", exc_info=True)
         await update.message.reply_text("An unexpected error occurred. Please try again later.")
 
-# --- Project Management Commands ---
-async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Creates a new project and notifies admin."""
-    user = update.message.from_user # Get user object
+# --- Refactored Project Creation Logic ---
+async def _create_project_logic(user: User, context: ContextTypes.DEFAULT_TYPE, project_name: str) -> int | None:
+    """Handles the actual creation of a project, including checks and notifications."""
     user_id = user.id
-    project_name = ' '.join(context.args)
-    log.debug(f"User {user_id} attempting to create project '{project_name}'")
-    if not project_name:
-        await update.message.reply_text('Please provide a project name. Usage: /create_project "Project Name"')
-        return
-        
     try:
         existing_projects = database.get_projects(user_id)
         for _, existing_name in existing_projects:
             if existing_name.lower() == project_name.lower():
-                await update.message.reply_text(f'Project "{existing_name}" already exists.')
-                return
+                await context.bot.send_message(chat_id=user_id, text=f'Project "{existing_name}" already exists.')
+                return None # Indicate failure (duplicate)
                 
         added_id = database.add_project(user_id, project_name)
         if added_id:
             log.info(f"User {user_id} created project '{project_name}' (ID: {added_id})")
-            await update.message.reply_text(f'Project "{project_name}" created! Select it with /select_project or /list_projects.')
             # Notify admin
             await admin_handlers.send_admin_notification(
                 context, 
                 f"Project created by {user.first_name} ({user_id}): '{project_name}' (ID: {added_id})"
             )
+            return added_id # Indicate success
         else:
             log.warning(f"Failed DB call to create project '{project_name}' for user {user_id}")
-            await update.message.reply_text("Failed to create project due to a database error.")
+            await context.bot.send_message(chat_id=user_id, text="Failed to create project due to a database error.")
+            return None # Indicate failure (DB error)
             
     except sqlite3.Error as e:
-        log.error(f"DB Error in create_project for user {user_id}: {e}")
-        await update.message.reply_text("An error occurred accessing project data. Please try again later.")
+        log.error(f"DB Error in _create_project_logic for user {user_id}: {e}")
+        await context.bot.send_message(chat_id=user_id, text="An error occurred accessing project data. Please try again later.")
+        return None # Indicate failure (exception)
     except Exception as e:
-        log.error(f"Error in create_project command for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred.")
+        log.error(f"Error in _create_project_logic for user {user_id}: {e}", exc_info=True)
+        await context.bot.send_message(chat_id=user_id, text="An unexpected error occurred.")
+        return None # Indicate failure (exception)
+
+# --- Project Management Commands ---
+async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | str:
+    """Starts the project creation conversation or creates directly if name provided."""
+    user = update.message.from_user
+    user_id = user.id
+    project_name = ' '.join(context.args).strip()
+    log.debug(f"User {user_id} using /create_project. Args: {context.args}")
+
+    if project_name:
+        added_id = await _create_project_logic(user, context, project_name)
+        if added_id:
+            await update.message.reply_text(f'Project "{project_name}" created! Select it with /list_projects.')
+        # If added_id is None, _create_project_logic already sent an error message.
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text('What name would you like for the new project? (Send /cancel to abort)')
+        return WAITING_PROJECT_NAME
+
+async def receive_project_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the project name from the user during the conversation."""
+    user = update.message.from_user
+    user_id = user.id
+    project_name = update.message.text.strip()
+    log.debug(f"Received potential project name '{project_name}' from user {user_id} in conversation.")
+
+    if not project_name or len(project_name) > 100: # Basic validation
+        await update.message.reply_text('Invalid name. Please provide a name (max 100 chars). Send /cancel to abort.')
+        return WAITING_PROJECT_NAME # Stay in the same state
+
+    added_id = await _create_project_logic(user, context, project_name)
+    if added_id:
+        await update.message.reply_text(f'Project "{project_name}" created! Select it with /list_projects.')
+    # If added_id is None, _create_project_logic already sent an error message.
+    return ConversationHandler.END
 
 async def select_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Selects a project by name or lists projects if no name is given."""
@@ -213,51 +247,106 @@ async def delete_project_command(update: Update, context: ContextTypes.DEFAULT_T
         log.error(f"Error in delete_project_command for user {user_id}: {e}", exc_info=True)
         await update.message.reply_text("An unexpected error occurred.")
 
-# --- Task Management Commands ---
-async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Adds a task to the currently selected project and notifies admin."""
-    user = update.message.from_user # Get user object
+# --- Refactored Task Creation Logic ---
+async def _create_task_logic(user: User, context: ContextTypes.DEFAULT_TYPE, task_name: str) -> int | None:
+    """Handles the actual creation of a task, including checks and notifications."""
     user_id = user.id
-    task_name = ' '.join(context.args)
-    log.debug(f"User {user_id} attempting to create task '{task_name}'")
-    if not task_name:
-        await update.message.reply_text('Usage: /create_task "Task Name"')
-        return
-        
     try:
         current_project_id = database.get_current_project(user_id)
         if not current_project_id:
-            await update.message.reply_text('Please select a project first with /list_projects.')
-            return
+            # This check might be redundant if create_task handles it, but good failsafe
+            await context.bot.send_message(chat_id=user_id, text='Error: No project is currently selected.')
+            return None 
             
         existing_tasks = database.get_tasks(current_project_id)
         for _, existing_name in existing_tasks:
             if existing_name.lower() == task_name.lower():
-                await update.message.reply_text(f'Task "{existing_name}" already exists in this project.')
-                return
+                await context.bot.send_message(chat_id=user_id, text=f'Task "{existing_name}" already exists in this project.')
+                return None # Indicate failure (duplicate)
                 
-        project_name = database.get_project_name(current_project_id)
+        project_name = database.get_project_name(current_project_id) # Get project name for logging/notification
         added_id = database.add_task(current_project_id, task_name)
         if added_id and project_name:
-            log.info(f"User {user_id} created task '{task_name}' (ID: {added_id}) in project {current_project_id}")
-            await update.message.reply_text(f'Task "{task_name}" added to project "{project_name}"!')
+            log.info(f"User {user_id} created task '{task_name}' (ID: {added_id}) in project {current_project_id} ('{project_name}')")
             # Notify admin
             await admin_handlers.send_admin_notification(
                 context, 
                 f"Task created by {user.first_name} ({user_id}) in project '{project_name}': '{task_name}' (ID: {added_id})"
             )
-        elif added_id:
-             log.warning(f"Failed DB call to create task '{task_name}' for user {user_id}")
-             await update.message.reply_text(f'Task "{task_name}" added!')
+            return added_id # Indicate success
+        elif added_id: # Project name might be missing, but task added
+            log.warning(f"Task '{task_name}' created for user {user_id} in project {current_project_id}, but project name missing.")
+            return added_id
         else:
-            await update.message.reply_text("Failed to add task due to a database error.")
+            log.warning(f"Failed DB call to create task '{task_name}' for user {user_id} in project {current_project_id}")
+            await context.bot.send_message(chat_id=user_id, text="Failed to add task due to a database error.")
+            return None # Indicate failure (DB error)
             
     except sqlite3.Error as e:
-        log.error(f"DB Error in create_task for user {user_id}: {e}")
-        await update.message.reply_text("An error occurred accessing task data.")
+        log.error(f"DB Error in _create_task_logic for user {user_id}: {e}")
+        await context.bot.send_message(chat_id=user_id, text="An error occurred accessing task data.")
+        return None # Indicate failure (exception)
     except Exception as e:
-        log.error(f"Error in create_task command for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text("An unexpected error occurred.")
+        log.error(f"Error in _create_task_logic for user {user_id}: {e}", exc_info=True)
+        await context.bot.send_message(chat_id=user_id, text="An unexpected error occurred.")
+        return None # Indicate failure (exception)
+
+# --- Task Management Commands ---
+async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | str:
+    """Starts the task creation conversation or creates directly if name provided."""
+    user = update.message.from_user
+    user_id = user.id
+    task_name = ' '.join(context.args).strip()
+    log.debug(f"User {user_id} using /create_task. Args: {context.args}")
+
+    # Check if project is selected BEFORE starting conversation or direct creation
+    try:
+        current_project_id = database.get_current_project(user_id)
+        if not current_project_id:
+            await update.message.reply_text('Please select a project first with /list_projects.')
+            return ConversationHandler.END # End immediately if no project selected
+    except Exception as e:
+        log.error(f"Error checking current project for user {user_id} in create_task: {e}", exc_info=True)
+        await update.message.reply_text("An error occurred checking your selected project.")
+        return ConversationHandler.END
+
+    project_name = database.get_project_name(current_project_id) or "Current Project" # For messages
+
+    if task_name:
+        added_id = await _create_task_logic(user, context, task_name)
+        if added_id:
+            await update.message.reply_text(f'Task "{task_name}" added to project "{project_name}"!')
+        # If added_id is None, _create_task_logic already sent an error message.
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text(f'What name for the new task in project "{project_name}"? (Send /cancel to abort)')
+        return WAITING_TASK_NAME
+
+async def receive_task_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the task name from the user during the conversation."""
+    user = update.message.from_user
+    user_id = user.id
+    task_name = update.message.text.strip()
+    log.debug(f"Received potential task name '{task_name}' from user {user_id} in conversation.")
+
+    if not task_name or len(task_name) > 100: # Basic validation
+        await update.message.reply_text('Invalid name. Please provide a name (max 100 chars). Send /cancel to abort.')
+        return WAITING_TASK_NAME # Stay in the same state
+
+    added_id = await _create_task_logic(user, context, task_name)
+    if added_id:
+        project_name = database.get_project_name(database.get_current_project(user_id)) or "the project"
+        await update.message.reply_text(f'Task "{task_name}" added to {project_name}!')
+    # If added_id is None, _create_task_logic already sent an error message.
+    return ConversationHandler.END
+
+# --- Generic Cancel Handler for Conversations ---
+async def cancel_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancels the current creation conversation."""
+    user_id = update.message.from_user.id
+    log.info(f"User {user_id} cancelled the creation process.")
+    await update.message.reply_text('Creation cancelled.')
+    return ConversationHandler.END
 
 async def select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Selects a task by name or lists tasks if no name is given."""
