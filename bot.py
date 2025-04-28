@@ -520,7 +520,7 @@ async def post_init(application: Application):
 
 def main():
     log.info("Initializing Pomodoro Bot...")
-    application = Application.builder().token(TOKEN).post_init(post_init).build()
+    application = Application.builder().token(TOKEN).post_init(post_init).job_queue().build()
 
     # Define reply keyboard button texts (ensure these match the ones in handlers/commands.py)
     BTN_START_WORK = "🚀 Start Work"
