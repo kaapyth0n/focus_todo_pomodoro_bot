@@ -210,6 +210,8 @@ async def list_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         # Add button to view archived projects
         keyboard.append([InlineKeyboardButton("🗄️ View Archived Projects", callback_data="list_projects_done")])
+        # Add button to create a new project
+        keyboard.append([InlineKeyboardButton("➕ Create New Project", callback_data="create_new_project")])
             
         reply_markup = InlineKeyboardMarkup(keyboard)
         # Use edit_message_text if called from a callback, otherwise reply_text
@@ -430,6 +432,8 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         # Add button to view archived tasks for this project
         keyboard.append([InlineKeyboardButton("🗄️ View Archived Tasks", callback_data="list_tasks_done")])
+        # Add button to create a new task in the current project
+        keyboard.append([InlineKeyboardButton("➕ Create New Task", callback_data="create_new_task")])
         # Add button to go back to project list
         keyboard.append([InlineKeyboardButton("« Back to Projects", callback_data="list_projects_active")])
             
@@ -1222,6 +1226,46 @@ async def handle_list_tasks_button(update: Update, context: ContextTypes.DEFAULT
     """Handles the 'Tasks' button press by calling list_tasks."""
     log.debug(f"User {update.message.from_user.id} pressed {BTN_LIST_TASKS}")
     await list_tasks(update, context)
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles text messages for creating projects and tasks from button interactions."""
+    user_id = update.message.from_user.id
+    text = update.message.text
+    
+    # Check if we're expecting a project name
+    if context.user_data.get(user_id, {}).get('expecting_project_name'):
+        log.debug(f"User {user_id} sent project name: {text}")
+        # Clear the flag
+        context.user_data[user_id]['expecting_project_name'] = False
+        
+        # Create the project
+        result = await _create_project_logic(update.message.from_user, context, text)
+        if result:
+            await update.message.reply_text(f'Project "{text}" created and selected! Use /list_tasks to add tasks.')
+        # Error handling done inside _create_project_logic
+        
+    # Check if we're expecting a task name
+    elif context.user_data.get(user_id, {}).get('expecting_task_name'):
+        log.debug(f"User {user_id} sent task name: {text}")
+        # Clear the flag
+        context.user_data[user_id]['expecting_task_name'] = False
+        
+        # Create the task
+        current_project_id = database.get_current_project(user_id)
+        if not current_project_id:
+            await update.message.reply_text('Please select a project first with /list_projects.')
+            return
+            
+        result = await _create_task_logic(update.message.from_user, context, text)
+        if result:
+            project_name = database.get_project_name(current_project_id) or "Current Project"
+            await update.message.reply_text(f'Task "{text}" added to project "{project_name}"!')
+            
+            # Refresh the task list to show the new task
+            fake_update = Update(0, message=update.message)
+            fake_update._effective_user = update.message.from_user
+            await list_tasks(fake_update, context)
+        # Error handling done inside _create_task_logic
 
 # --- Help Command --- (ensure it's the last command)
 # ... existing help_command ... 

@@ -502,7 +502,9 @@ async def setup_bot_commands(application: Application):
         BotCommand("start", "Start the bot & show keyboard"),
         BotCommand("help", "Show help message"),
         BotCommand("list_projects", "List/select projects"),
+        BotCommand("create_project", "Create a new project"),
         BotCommand("list_tasks", "List/select tasks in current project"),
+        BotCommand("create_task", "Create a new task in current project"),
         BotCommand("start_timer", "Start work timer (default 25min)"),
         BotCommand("pause_timer", "Pause current timer"),
         BotCommand("resume_timer", "Resume paused timer"),
@@ -615,6 +617,12 @@ def main():
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_BREAK_5}$'), cmd_handlers.handle_break_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_LIST_PROJECTS}$'), cmd_handlers.handle_list_projects_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_LIST_TASKS}$'), cmd_handlers.handle_list_tasks_button))
+
+    # Handle message creation from button callbacks
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & ~filters.Regex(f'^({BTN_START_WORK}|{BTN_PAUSE}|{BTN_RESUME}|{BTN_STOP}|{BTN_REPORT}|{BTN_BREAK_5}|{BTN_LIST_PROJECTS}|{BTN_LIST_TASKS})$'),
+        cmd_handlers.handle_text_message
+    ))
 
     # Register callback query handler from handlers.callbacks
     application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))

@@ -406,6 +406,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fake_update = Update(0, message=query.message)
             fake_update._effective_user = query.from_user
             await cmd_handlers.list_tasks(fake_update, context)
+            
+        # --- Create New Project/Task Callbacks ---
+        elif data == "create_new_project":
+            log.debug(f"User {user_id} requested to create a new project via button.")
+            await query.edit_message_text("What name would you like for the new project? (Send a message with the project name)")
+            # Store a flag to handle the next message as a project name
+            context.user_data[user_id] = context.user_data.get(user_id, {})
+            context.user_data[user_id]['expecting_project_name'] = True
+            
+        elif data == "create_new_task":
+            log.debug(f"User {user_id} requested to create a new task via button.")
+            current_project_id = database.get_current_project(user_id)
+            if not current_project_id:
+                await query.edit_message_text("Please select a project first using /list_projects.")
+                return
+                
+            project_name = database.get_project_name(current_project_id) or "Current Project"
+            await query.edit_message_text(f"What name would you like for the new task in project '{project_name}'? (Send a message with the task name)")
+            # Store a flag to handle the next message as a task name
+            context.user_data[user_id] = context.user_data.get(user_id, {})
+            context.user_data[user_id]['expecting_task_name'] = True
 
         # --- Default Case --- 
         else:
