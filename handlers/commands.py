@@ -25,11 +25,14 @@ BTN_RESUME = "▶️ Resume"
 BTN_STOP = "⏹️ Stop"
 BTN_REPORT = "📊 Report"
 BTN_BREAK_5 = "☕️ Break (5m)"
+BTN_LIST_PROJECTS = "📂 Projects"
+BTN_LIST_TASKS = "📝 Tasks"
 
 MAIN_KEYBOARD = [
     [BTN_START_WORK],               # Row 1
     [BTN_PAUSE, BTN_RESUME, BTN_STOP], # Row 2
     [BTN_REPORT, BTN_BREAK_5],      # Row 3
+    [BTN_LIST_PROJECTS, BTN_LIST_TASKS], # Row 4 - Quick access to projects and tasks
 ]
 REPLY_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 
@@ -1209,6 +1212,16 @@ async def handle_break_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Start the break timer (using the internal function directly)
     await start_break_timer(context, user_id, 5) # 5 minute break
+
+async def handle_list_projects_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Projects' button press by calling list_projects."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_LIST_PROJECTS}")
+    await list_projects(update, context)
+
+async def handle_list_tasks_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'Tasks' button press by calling list_tasks."""
+    log.debug(f"User {update.message.from_user.id} pressed {BTN_LIST_TASKS}")
+    await list_tasks(update, context)
 
 # --- Help Command --- (ensure it's the last command)
 # ... existing help_command ... 

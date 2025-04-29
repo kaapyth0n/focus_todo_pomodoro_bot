@@ -546,6 +546,8 @@ def main():
     BTN_STOP = "⏹️ Stop"
     BTN_REPORT = "📊 Report"
     BTN_BREAK_5 = "☕️ Break (5m)"
+    BTN_LIST_PROJECTS = "📂 Projects"
+    BTN_LIST_TASKS = "📝 Tasks"
 
     # Register command handlers from handlers.commands
     application.add_handler(CommandHandler('start', cmd_handlers.start))
@@ -611,6 +613,8 @@ def main():
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_STOP}$'), cmd_handlers.handle_stop_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_REPORT}$'), cmd_handlers.handle_report_button))
     application.add_handler(MessageHandler(filters.Regex(f'^{BTN_BREAK_5}$'), cmd_handlers.handle_break_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_LIST_PROJECTS}$'), cmd_handlers.handle_list_projects_button))
+    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_LIST_TASKS}$'), cmd_handlers.handle_list_tasks_button))
 
     # Register callback query handler from handlers.callbacks
     application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
