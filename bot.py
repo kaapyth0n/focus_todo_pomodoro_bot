@@ -520,7 +520,24 @@ async def post_init(application: Application):
 
 def main():
     log.info("Initializing Pomodoro Bot...")
-    application = Application.builder().token(TOKEN).post_init(post_init).job_queue().build()
+    
+    # According to DEPLOY.md, in production the correct installation is:
+    # pip install "python-telegram-bot[job-queue]"
+    # For PTB 21.x, we don't need to explicitly create a job queue
+    
+    try:
+        # Standard initialization for python-telegram-bot 21.x with job-queue extra
+        application = Application.builder().token(TOKEN).post_init(post_init).build()
+        
+        # Check if job queue is available
+        if not hasattr(application, 'job_queue') or application.job_queue is None:
+            log.warning("Job queue not available. Make sure python-telegram-bot is installed with [job-queue] extra.")
+            log.warning("Run: pip install 'python-telegram-bot[job-queue]'")
+    except Exception as e:
+        log.error(f"Error initializing application: {e}")
+        # Fallback to simpler initialization if anything fails
+        application = Application.builder().token(TOKEN).build()
+        log.warning("Using basic initialization without post_init.")
 
     # Define reply keyboard button texts (ensure these match the ones in handlers/commands.py)
     BTN_START_WORK = "🚀 Start Work"
