@@ -94,7 +94,9 @@ async def _create_project_logic(user: User, context: ContextTypes.DEFAULT_TYPE, 
                 
         added_id = database.add_project(user_id, project_name)
         if added_id:
-            log.info(f"User {user_id} created project '{project_name}' (ID: {added_id})")
+            # Set the newly created project as the current/active project
+            database.set_current_project(user_id, added_id)
+            log.info(f"User {user_id} created project '{project_name}' (ID: {added_id}) and set as current")
             # Notify admin
             await admin_handlers.send_admin_notification(
                 context, 
@@ -126,7 +128,7 @@ async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if project_name:
         added_id = await _create_project_logic(user, context, project_name)
         if added_id:
-            await update.message.reply_text(f'Project "{project_name}" created! Select it with /list_projects.')
+            await update.message.reply_text(f'Project "{project_name}" created and selected! Use /list_tasks to add tasks.')
         # If added_id is None, _create_project_logic already sent an error message.
         return ConversationHandler.END
     else:
@@ -146,7 +148,7 @@ async def receive_project_name(update: Update, context: ContextTypes.DEFAULT_TYP
 
     added_id = await _create_project_logic(user, context, project_name)
     if added_id:
-        await update.message.reply_text(f'Project "{project_name}" created! Select it with /list_projects.')
+        await update.message.reply_text(f'Project "{project_name}" created and selected! Use /list_tasks to add tasks.')
     # If added_id is None, _create_project_logic already sent an error message.
     return ConversationHandler.END
 
@@ -267,7 +269,9 @@ async def _create_task_logic(user: User, context: ContextTypes.DEFAULT_TYPE, tas
         project_name = database.get_project_name(current_project_id) # Get project name for logging/notification
         added_id = database.add_task(current_project_id, task_name)
         if added_id and project_name:
-            log.info(f"User {user_id} created task '{task_name}' (ID: {added_id}) in project {current_project_id} ('{project_name}')")
+            # Set the newly created task as the current/active task
+            database.set_current_task(user_id, added_id)
+            log.info(f"User {user_id} created task '{task_name}' (ID: {added_id}) in project {current_project_id} ('{project_name}') and set as current")
             # Notify admin
             await admin_handlers.send_admin_notification(
                 context, 
@@ -275,7 +279,9 @@ async def _create_task_logic(user: User, context: ContextTypes.DEFAULT_TYPE, tas
             )
             return added_id # Indicate success
         elif added_id: # Project name might be missing, but task added
-            log.warning(f"Task '{task_name}' created for user {user_id} in project {current_project_id}, but project name missing.")
+            # Set task as current even if project name is missing
+            database.set_current_task(user_id, added_id)
+            log.warning(f"Task '{task_name}' created for user {user_id} in project {current_project_id}, but project name missing. Set as current task.")
             return added_id
         else:
             log.warning(f"Failed DB call to create task '{task_name}' for user {user_id} in project {current_project_id}")
@@ -315,7 +321,7 @@ async def create_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if task_name:
         added_id = await _create_task_logic(user, context, task_name)
         if added_id:
-            await update.message.reply_text(f'Task "{task_name}" added to project "{project_name}"!')
+            await update.message.reply_text(f'Task "{task_name}" added to project "{project_name}" and selected! You can now /start_timer.')
         # If added_id is None, _create_task_logic already sent an error message.
         return ConversationHandler.END
     else:
@@ -336,7 +342,7 @@ async def receive_task_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     added_id = await _create_task_logic(user, context, task_name)
     if added_id:
         project_name = database.get_project_name(database.get_current_project(user_id)) or "the project"
-        await update.message.reply_text(f'Task "{task_name}" added to {project_name}!')
+        await update.message.reply_text(f'Task "{task_name}" added to {project_name} and selected! You can now /start_timer.')
     # If added_id is None, _create_task_logic already sent an error message.
     return ConversationHandler.END
 
