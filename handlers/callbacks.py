@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import ContextTypes
 import database
 from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 # --- Helper Functions for Displaying Lists --- 
 
-async def _display_archived_projects(query: Update.callback_query, user_id: int):
+async def _display_archived_projects(query: CallbackQuery, user_id: int):
     """Helper to fetch and display the archived projects list."""
     try:
         projects = database.get_projects(user_id, status=STATUS_DONE)
@@ -35,7 +35,7 @@ async def _display_archived_projects(query: Update.callback_query, user_id: int)
         try: await query.edit_message_text("An error occurred listing archived projects.")
         except Exception: pass # Ignore if edit fails
 
-async def _display_archived_tasks(query: Update.callback_query, user_id: int):
+async def _display_archived_tasks(query: CallbackQuery, user_id: int):
     """Helper to fetch and display the archived tasks list for the current project."""
     try:
         current_project_id = database.get_current_project(user_id)
