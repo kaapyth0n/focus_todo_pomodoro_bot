@@ -16,7 +16,8 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Start short (5 min) or long (15 min) break timers (prompted after work, or via button).
     - Pause and resume timers.
     - Stop timers early, logging the time worked.
-    - View the current timer countdown in a web interface.
+    - View the current timer countdown in a web interface that matches your language preference.
+    - Interactive web timer with sound muting option.
 - **Reporting & Data:**
     - View daily, weekly, and monthly productivity reports with project/task breakdown.
     - Connect to Google Sheets account via OAuth.
@@ -25,6 +26,7 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Reply Keyboard with common actions (Start, Stop, Pause, Resume, Report, Break).
     - Inline buttons for list selection, navigation, and actions.
     - Persistent selection of the current project and task.
+    - Multi-language support (English, German, Russian) for both bot and web interface.
 - **Admin Features:**
     - Notifications for new user registrations and project/task creations.
     - Toggle admin notifications on/off.
@@ -50,6 +52,7 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     ```bash
     pip install -r requirements.txt
     ```
+    This installs all required packages including `python-telegram-bot`, `Flask`, `Flask-Babel`, and `python-i18n` for localization.
 3.  **Google Cloud Setup (for Sheets Export):**
     - Go to the [Google Cloud Console](https://console.cloud.google.com/).
     - Create a new project (or use an existing one).
@@ -129,6 +132,11 @@ Interact with the bot in Telegram using commands or the reply keyboard.
 -   `/admin_stats`: Show basic bot usage statistics.
 -   *(Initial admin setup command is hidden)*
 
+**Language Settings:**
+-   `/language`: Set your preferred language (currently supports English, German, and Russian).
+    - The chosen language applies to both bot messages and the web timer interface.
+    - Your language preference is remembered between sessions.
+
 ### Reply Keyboard
 
 -   **🚀 Start Work**: Equivalent to `/start_timer`.
@@ -150,11 +158,19 @@ focus_pomodoro_bot/
 │   ├── callbacks.py
 │   ├── commands.py
 │   └── google_auth.py
+├── locales/            # Localization files (translations)
+│   ├── en.yml          # English translations
+│   ├── de.yml          # German translations  
+│   └── ru.yml          # Russian translations
+├── templates/          # Web app templates
+│   └── timer.html      # Timer page template
 ├── venv/               # Virtual environment (if used)
 ├── bot.py              # Main application entry point, sets up handlers
 ├── config.py           # Configuration loading and timer state management
 ├── database.py         # Database schema setup and query functions
 ├── web_app.py          # Flask web application for timer view
+├── i18n_utils.py       # Internationalization utilities
+├── babel_extract.py    # Helper script for translation extraction
 ├── requirements.txt    # Python dependencies
 ├── focus_pomodoro.db   # SQLite database file (created automatically)
 ├── credentials.json    # Google Cloud credentials (!!! ADD TO .gitignore !!!)
@@ -164,6 +180,17 @@ focus_pomodoro_bot/
 ├── README.md           # This file
 └── ... (other potential files like sounds, logs)
 ```
+
+### Internationalization (i18n)
+
+The bot supports multiple languages (currently English, German, and Russian) through a YAML-based translation system:
+
+1. **Bot Interface**: Uses the python-i18n library with translations stored in `locales/*.yml` files.
+2. **Web Interface**: The timer web app uses the same translations, integrated with Flask via a custom context processor.
+3. **User Preferences**: Users can change their language with the `/language` command, which is remembered and used for all interactions, including the web timer.
+4. **Adding Languages**: To add a new language:
+   - Create a new `locales/[language_code].yml` file based on the existing ones
+   - Add the language code to `SUPPORTED_LANGUAGES` in `config.py`
 
 **Important:** Ensure `credentials.json` and `.env` are added to your `.gitignore` file to avoid committing sensitive information.
 
