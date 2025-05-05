@@ -11,9 +11,15 @@ from . import google_auth as google_auth_handlers # Import the module itself
 from . import admin as admin_handlers # Import admin handlers
 from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
 import math # For formatting time
-from i18n_utils import _, get_language_name # Import the translation helper and name getter
+from i18n_utils import _, get_language_name, set_user_lang # Import the translation helper and name getter
+import json
+import re
 
 log = logging.getLogger(__name__)
+
+# Define constants for conversation states
+NAME_PROJECT = 0
+NAME_TASK = 1
 
 # --- Conversation Handler States ---
 WAITING_PROJECT_NAME, WAITING_TASK_NAME = range(2)
@@ -37,54 +43,35 @@ def get_main_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a welcome message, adds user to database, and shows keyboard, notifies admin if new."""
-    user = update.message.from_user
-    user_id = user.id # Define user_id upfront for logging in exceptions
-    is_new_user = False # Flag to track if user was added
-    log.info(f"Received /start command from user {user_id} ('{user.username or user.first_name}')")
-    try:
-        existing_user = database.get_google_credentials(user_id) # Re-using this check temporarily
-        if not existing_user: 
-            is_new_user = True # Assume new if no google creds, needs better check
-            
-        database.add_user(user.id, user.first_name, user.last_name)
-        
-        # Notify admin if it seems like a new user
-        if is_new_user:
-            await admin_handlers.send_admin_notification(
-                context, 
-                f"New user started: {user.first_name} (ID: {user.id}, Username: @{user.username or 'N/A'})"
-            )
-
-        # Reset current project/task if not found (good practice on start)
-        current_proj = database.get_current_project(user_id)
-        current_task = database.get_current_task(user_id)
-        if current_proj:
-             proj_name = database.get_project_name(current_proj)
-             if not proj_name:
-                 log.warning(f"User {user_id}'s current project {current_proj} not found. Clearing.")
-                 database.clear_current_project(user_id)
-             elif current_task:
-                 task_name = database.get_task_name(current_task)
-                 if not task_name:
-                     log.warning(f"User {user_id}'s current task {current_task} not found. Clearing.")
-                     database.clear_current_task(user_id)
-        else:
-            database.clear_current_project(user_id) # Clears task too
-
-        # Send welcome message with the dynamically generated, translated keyboard
-        welcome_message = _(user_id, 'welcome')
-        reply_markup = get_main_keyboard(user_id) # Generate translated keyboard
-        await update.message.reply_text(
-            welcome_message, 
-            reply_markup=reply_markup
-        )
-    except sqlite3.Error as e:
-        log.error(f"DB Error in start for user {user_id}: {e}")
-        await update.message.reply_text(_(user_id, 'error_db')) # Example: Use a generic DB error key
-    except Exception as e:
-        log.error(f"Error in start command for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text(_(user_id, 'error_unexpected')) # Example: Use a generic unexpected error key
+    """Start command handler - sets up a new user and shows main keyboard."""
+    user = update.effective_user
+    user_id = user.id
+    log.info(f"User {user_id} started the bot.")
+    
+    # Get user's language from Telegram client if available
+    user_language = user.language_code
+    if user_language and user_language in SUPPORTED_LANGUAGES:
+        # Set the user's language in the database if it's a supported language
+        if set_user_lang(user_id, user_language):
+            log.info(f"User {user_id} language automatically set to {user_language} from Telegram client")
+    
+    # Add user to database (this will only insert if new, ignore if exists)
+    first_name = getattr(user, 'first_name', '')
+    last_name = getattr(user, 'last_name', '')
+    database.add_user(user_id, first_name, last_name)
+    
+    # Show welcome message in user's language
+    welcome_message = _(user_id, 'welcome')
+    
+    # Create the keyboard
+    reply_markup = get_main_keyboard(user_id)
+    
+    # Send welcome message with keyboard
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+    
+    # Add version notice for users coming from older versions
+    # This can be removed in future versions
+    # await update.message.reply_text("ℹ️ Tip: Use /language to set your preferred language.") 
 
 # --- Refactored Project Creation Logic ---
 async def _create_project_logic(user: User, context: ContextTypes.DEFAULT_TYPE, project_name: str) -> int | None:

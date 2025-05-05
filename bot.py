@@ -28,8 +28,22 @@ log = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
+    
+    # Get user's language from Telegram client if available
+    user_language = user.language_code
+    if user_language and user_language in SUPPORTED_LANGUAGES:
+        # Set the user's language in the database
+        from i18n_utils import set_user_lang
+        set_user_lang(user.id, user_language)
+        log.info(f"User {user.id} language automatically set to {user_language} from Telegram client")
+    
+    # Add or update user in database
     database.add_user(user.id, user.first_name, user.last_name)
-    await update.message.reply_text('Welcome to your Focus To-Do List Bot! Use /create_project to get started.')
+    
+    # Use the user's language for the welcome message
+    from i18n_utils import _
+    welcome_message = _(user.id, 'welcome')
+    await update.message.reply_text(welcome_message)
 
 async def create_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id

@@ -136,6 +136,7 @@ Interact with the bot in Telegram using commands or the reply keyboard.
 -   `/language`: Set your preferred language (currently supports English, German, and Russian).
     - The chosen language applies to both bot messages and the web timer interface.
     - Your language preference is remembered between sessions.
+    - When you first start the bot, it will automatically detect your language from your Telegram client settings (if available and supported).
 
 ### Reply Keyboard
 
