@@ -1,0 +1,235 @@
+en:
+  welcome: "Welcome to your Focus To-Do List Bot! Use /create_project to get started."
+  select_language: "Please select your preferred language:"
+  language_set: "Language set to %{language_name}."
+  # Reply Keyboard Buttons
+  button_start_work: "🚀 Start Work"
+  button_pause: "⏸️ Pause"
+  button_resume: "▶️ Resume"
+  button_stop: "⏹️ Stop"
+  button_report: "📊 Report"
+  button_break_5: "☕️ Break (5m)"
+  button_list_projects: "📂 Projects"
+  button_list_tasks: "📝 Tasks"
+  # Error Messages
+  error_db: "An error occurred connecting to the database. Please try again later."
+  error_unexpected: "An unexpected error occurred. Please try again later."
+  # Prompts
+  main_menu_prompt: "Main menu:"
+  # Project Management
+  project_already_exists: "Project \"%{existing_name}\" already exists."
+  project_created_selected: "Project \"%{project_name}\" created and selected! Use /list_tasks to add tasks."
+  project_create_prompt: "What name would you like for the new project? (Send /cancel to abort)"
+  project_create_invalid_name: "Invalid name. Please provide a name (max 100 chars). Send /cancel to abort."
+  project_selected: "Project \"%{project_name}\" selected."
+  project_not_found: "Project not found. Use /list_projects or /create_project."
+  project_list_title: "Select an active project (➡️ = current) or mark as done:"
+  project_none_found: "No active projects found. Create one?"
+  button_mark_project_done: "✅ Mark Done"
+  button_view_archived_projects: "🗄️ View Archived Projects"
+  button_create_new_project: "➕ Create New Project"
+  # Generic Errors (already added error_db, error_unexpected)
+  error_accessing_data: "An error occurred accessing the data. Please try again later."
+  # Deletion Prompts
+  delete_project_none: "You don't have any projects to delete."
+  delete_project_prompt: "Which project to delete? (Irreversible!) Click to confirm:"
+  # Task Management
+  task_already_exists: "Task \"%{existing_name}\" already exists in this project."
+  task_created_selected: "Task \"%{task_name}\" added to project \"%{project_name}\" and selected! You can now /start_timer."
+  task_create_no_project: "Please select a project first with /list_projects."
+  task_create_prompt: "What name for the new task in project \"%{project_name}\"? (Send /cancel to abort)"
+  task_create_invalid_name: "Invalid name. Please provide a name (max 100 chars). Send /cancel to abort."
+  task_selected: "Task \"%{task_name}\" selected in project \"%{project_name}\"."
+  task_not_found: "Task not found in project \"%{project_name}\". Use /list_tasks or /create_task."
+  task_list_title: "Active tasks in '%{project_name}' (➡️ = current):"
+  task_none_found_in_project: "No active tasks found in project '%{project_name}'. Create one?"
+  button_mark_task_done: "✅ Mark Done"
+  button_view_archived_tasks: "🗄️ View Archived Tasks"
+  button_create_new_task: "➕ Create New Task"
+  button_back_to_projects: "« Back to Projects"
+  # Deletion Prompts (Tasks)
+  delete_task_no_project: "Please select a project first before deleting tasks."
+  delete_task_none: "No tasks found in project '%{project_name}' to delete."
+  delete_task_prompt: "Which task in '%{project_name}' to delete? Click to confirm:"
+  # Generic Actions
+  creation_cancelled: "Creation cancelled."
+  # Generic Text Fallbacks
+  text_the_project: "the project"
+  text_selected_project: "Selected Project"
+  text_current_project: "Current Project"
+  # Timer Management
+  timer_already_active: "Another timer is already active. Please /stop_timer first."
+  timer_schedule_failed: "Sorry, failed to schedule the timer. Please try again."
+  timer_view_button: "View Timer"
+  timer_work_started: "Work timer started for task \"%{task_name}\" in project \"%{project_name}\" (%{duration_minutes} minutes)."
+  timer_work_started_no_project: "Work timer started (%{duration_minutes} minutes)."
+  timer_break_started: "Break timer started (%{duration_minutes} minutes)."
+  timer_needs_project_task: "Please select an active project and task first."
+  timer_project_archived: "The selected project is marked as done/archived. Please select an active project."
+  timer_task_archived: "The selected task is marked as done/archived. Please select an active task."
+  timer_project_task_missing: "Error: The selected project/task info could not be retrieved."
+  timer_invalid_duration: "Duration must be between 1 and 120 minutes."
+  timer_invalid_duration_fallback: "Invalid duration. Using default %{default_duration} minutes."
+  timer_finished_work_unselected: "⏱️ Work timer finished (%{duration_minutes} min), but project/task was unselected. Time not logged."
+  timer_finished_work_success: "✅ Time's up! Work session completed.\n\nProject: %{project_name}\nTask: %{task_name}\nDuration: %{duration_minutes} minutes"
+  timer_finished_break_success: "🧘 Break finished (%{duration_minutes} minutes). Time for work!"
+  timer_button_break_5: "☕️ 5-min Break"
+  timer_button_break_15: "☕️☕️ 15-min Break"
+  timer_error_finishing: "An unexpected error occurred when finishing the timer."
+  timer_not_running: "No %{timer_type} is running."
+  timer_paused: "%{timer_type} paused. Accumulated: %{accumulated_time} min."
+  timer_state_inconsistent: "Internal error: Timer state inconsistent."
+  timer_not_paused: "No timer is paused."
+  timer_already_completed: "Timer already completed."
+  timer_resumed: "%{timer_type} resumed. %{remaining_time} minutes remaining."
+  timer_no_timer_active: "No timer is running or paused."
+  timer_stopped_work: "⏹️ Work timer stopped.\n\nProject: %{project_name}\nTask: %{task_name}\nDuration: %{accumulated_time} / %{target_duration} minutes"
+  timer_stopped_work_missing: "⏹️ Work timer stopped.\n\nDuration: %{accumulated_time} / %{target_duration} minutes (Project/Task info missing)"
+  timer_stopped_work_unselected: "⏹️ Work timer stopped.\n\nDuration: %{accumulated_time} / %{target_duration} minutes (No project/task selected)"
+  timer_stopped_break: "⏹️ Break timer stopped.\n\nDuration: %{accumulated_time} / %{target_duration} minutes"
+  timer_error_stopping: "An unexpected error occurred stopping the timer."
+  timer_error_pausing: "An unexpected error occurred pausing the timer."
+  timer_error_resuming: "An unexpected error occurred resuming the timer."
+  timer_error_starting: "An unexpected error occurred starting the timer."
+  timer_error_starting_break: "An unexpected error occurred starting the break timer."
+  timer_error_saving_session: "An error occurred saving the session data."
+  # Report Management
+  report_title: "*%{report_type} Report*"
+  report_title_error: "*%{report_type} Report* (Error)"
+  report_title_date_error: "*%{report_type} Report* (Date Error)"
+  report_date_today: "Today"
+  report_date_yesterday: "Yesterday"
+  report_week_this: "This Week"
+  report_week_last: "Last Week"
+  report_week_range: "%{start_date} - %{end_date}"
+  report_month_format: "%{month_name} %{year}"
+  report_data_error: "Could not retrieve report data."
+  report_no_sessions_day: "No work sessions recorded for this day."
+  report_no_sessions_week: "No work sessions recorded for this week."
+  report_no_sessions_month: "No work sessions recorded for this month."
+  report_total_time_minutes: "Total time: *%{total_minutes} minutes*"
+  report_total_time_week: "Total time this week: *%{total_minutes} minutes*"
+  report_total_time_month: "Total time this month: *%{total_minutes} minutes* (%{total_hours} hours)"
+  report_project_task_breakdown: "*Project & Task Breakdown:*"
+  report_daily_breakdown: "*Daily Breakdown:*"
+  report_project_line: "• *%{project_name}:* %{minutes} min"
+  report_project_line_percentage: "• *%{project_name}:* %{minutes} min (%{percentage}%%)" # Escaped % for percentage
+  report_task_line: "    - %{task_name}: %{minutes} min"
+  report_daily_line: "• %{date}: %{minutes} min"
+  report_no_project_task_data: "No specific project/task time recorded for this period."
+  report_button_prev_day: "⬅️ Previous Day"
+  report_button_next_day: "Next Day ➡️"
+  report_button_prev_week: "⬅️ Previous Week"
+  report_button_next_week: "Next Week ➡️"
+  report_button_prev_month: "⬅️ Previous Month"
+  report_button_next_month: "Next Month ➡️"
+  report_select_prompt: "Which work report period would you like?"
+  report_button_daily: "📊 Daily (Today)"
+  report_button_weekly: "📈 Weekly (This Week)"
+  report_button_monthly: "📅 Monthly (This Month)"
+  report_unknown_type: "Unknown report type. Use the buttons or specify daily, weekly, monthly."
+  report_error_processing: "An error occurred processing the report command."
+  # Help Command
+  help_text: |
+    Here are the available commands:
+
+    *Project Management:*
+      `/create_project "Project Name"` - Create a new project.
+      `/list_projects` - List and select projects (➡️ indicates current).
+      `/select_project "Project Name"` - Select a project by name.
+      `/delete_project` - Delete a project and its data.
+
+    *Task Management:*
+      `/create_task "Task Name"` - Add task to the current project.
+      `/list_tasks` - List and select tasks in the current project (➡️ indicates current).
+      `/select_task "Task Name"` - Select a task by name.
+      `/delete_task` - Delete a task and its data.
+
+    *Timer Control:*
+      `/start_timer [minutes]` - Start Pomodoro (default 25 min). E.g., `/start_timer 45`
+      `/pause_timer` - Pause the current timer.
+      `/resume_timer` - Resume the paused timer.
+      `/stop_timer` - Stop the timer early and log time.
+      (Breaks are offered after work sessions or via button)
+
+    *Reporting:*
+      `/report` - Get daily, weekly, or monthly work time reports.
+
+    *Google Sheets:*
+      `/connect_google` - Authorize access to Google Sheets.
+      `/export_to_sheets <SPREADSHEET_ID> [SheetName]` - Export all session data.
+
+    *Other:*
+      `/language` - Set preferred language.
+      `/help` - Show this help message.
+      `/start` - Initialize or welcome message.
+  # Callback-triggered prompts
+  callback_create_project_prompt: "What name would you like for the new project? (Send a message with the project name)"
+  callback_create_task_prompt: "What name would you like for the new task in project '%{project_name}'? (Send a message with the task name)"
+  # Callback error messages (Short versions for query.answer)
+  error_db_short: "Database error"
+  error_unexpected_short: "Unexpected error"
+  error_list_archived_projects: "An error occurred listing archived projects."
+  error_list_archived_tasks: "An error occurred listing archived tasks."
+  error_processing_selection: "Error processing selection."
+  error_selecting_project_db: "Database error during project selection."
+  error_selecting_project_unexpected: "An unexpected error occurred during project selection."
+  error_selecting_task_no_project: "Please select a project first using /select_project."
+  error_task_not_found_or_mismatch: "Task not found or doesn't belong to the current project."
+  error_selecting_task_db: "Database error during task selection."
+  error_selecting_task_unexpected: "An unexpected error occurred during task selection."
+  deletion_cancelled: "Deletion cancelled."
+  error_invalid_delete_data: "Error: Invalid deletion data."
+  delete_confirm_project: "❗️ FINAL CONFIRMATION: Delete project '%{project_name}'?\n(This deletes ALL associated tasks and time entries!) "
+  delete_confirm_task: "❗️ FINAL CONFIRMATION: Delete task '%{task_name}'?\n(This deletes its recorded time entries!) "
+  error_project_not_found_delete: "Error: Project not found."
+  error_finding_project_delete: "Error finding project to delete."
+  project_deleted_success: "Project '%{project_name}' and its tasks deleted."
+  project_deleted_fail: "Failed to delete project '%{project_name}'. Database error likely."
+  error_task_not_found_delete: "Error: Task not found."
+  error_finding_task_delete: "Error finding task to delete."
+  task_deleted_success: "Task '%{task_name}' deleted."
+  task_deleted_fail: "Failed to delete task '%{task_name}'. Database error likely."
+  error_processing_delete: "Error processing deletion command."
+  error_db_delete_project: "Database error during project deletion."
+  error_unexpected_delete_project: "An unexpected error occurred during deletion."
+  error_db_delete_task: "Database error during task deletion."
+  error_unexpected_delete_task: "An unexpected error occurred during deletion."
+  error_timer_active_break: "Another timer is already active! Stop it first."
+  break_started: "Break timer started for %{duration_minutes} minutes!"
+  error_start_break: "Error starting break timer."
+  error_start_break_unexpected: "An unexpected error occurred while starting the break."
+  project_archived_toast: "Project '%{project_name}' marked done & archived."
+  project_archive_fail: "Failed to mark project as done."
+  task_archived_toast: "Task '%{task_name}' marked done & archived."
+  task_archive_fail: "Failed to mark task as done."
+  project_reactivated_toast: "Project '%{project_name}' reactivated."
+  project_reactivate_fail: "Failed to reactivate project."
+  task_reactivated_toast: "Task '%{task_name}' reactivated."
+  task_reactivate_fail: "Failed to reactivate task."
+  error_generic: "An error occurred."
+  error_set_language_fail: "Sorry, I couldn't set that language."
+  error_set_language_invalid: "Error: Invalid language selection data."
+  error_set_language_unexpected: "An unexpected error occurred while setting the language."
+  action_unknown: "Unknown action."
+  # Archived List Titles
+  archived_projects_title: "Archived Projects:"
+  archived_tasks_title: "Archived Tasks in '%{project_name}':"
+  archived_none_found: "No archived items found."
+  archived_project_no_archive: "No archived projects found."
+  archived_task_no_archive: "No archived tasks found."
+  button_reactivate: "↩️ Reactivate"
+  button_back_to_active_projects: "« Back to Active Projects"
+  button_back_to_active_tasks: "« Back to Active Tasks"
+  # Generic Fallbacks for Callbacks
+  text_unknown_project: "Unknown Project"
+  text_unknown_task: "Unknown Task"
+  # Callback Specific Instructions
+  instruction_create_project: "Use the `/create_project \"Project Name\"` command to add your first project."
+  instruction_create_task: "Use the `/create_task \"Task Name\"` command to add a task to '%{project_name}'."
+  # Callback specific selections
+  project_selected_callback: "Project '%{project_name}' selected. Use /list_tasks to see or add tasks."
+  task_selected_callback: "Task '%{task_name}' selected."
+  # Deletion confirmation buttons
+  button_confirm_delete: "🔴 Yes, DELETE!"
+  button_cancel_delete: "🟢 No, cancel" 

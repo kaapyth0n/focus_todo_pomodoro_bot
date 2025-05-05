@@ -7,14 +7,20 @@ from collections import defaultdict # Import defaultdict
 
 DB_NAME = 'focus_pomodoro.db'
 
-# Configure basic logging for the database module
-# This could be more sophisticated, e.g., using the main app logger
-# For now, just get logger by name
+# Get a logger instance
 log = logging.getLogger(__name__)
 
 # Status Constants
 STATUS_ACTIVE = 0
 STATUS_DONE = 1
+
+# --- Database Initialization and Schema Management ---
+def get_db_connection():
+    """Establishes a connection to the SQLite database."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row # Return rows as dictionary-like objects
+    conn.execute("PRAGMA foreign_keys = ON;") # Enforce foreign key constraints
+    return conn
 
 def _check_add_columns(conn, table_name: str, columns_to_add: dict):
     """Generic helper to add missing columns to a table."""
@@ -57,13 +63,13 @@ def _create_bot_settings_table(conn):
         conn.rollback()
 
 def create_database():
-    """Creates or ensures the database schema exists, running all operations in one transaction."""
+    """Creates the database tables if they don't exist and applies migrations."""
     conn = None
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
-        # --- Users Table --- 
+        # --- Create Tables ---\n        # Users Table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -74,6 +80,7 @@ def create_database():
                 google_credentials_json TEXT DEFAULT NULL, 
                 google_sheet_id TEXT DEFAULT NULL, -- Added column
                 is_admin INTEGER DEFAULT 0, -- Added column
+                language_code TEXT DEFAULT 'en', -- Added language preference
                 FOREIGN KEY (current_project_id) REFERENCES projects(project_id) ON DELETE SET NULL,
                 FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
             )
@@ -83,7 +90,8 @@ def create_database():
         _check_add_columns(conn, 'users', { 
             'google_credentials_json': 'TEXT DEFAULT NULL', 
             'google_sheet_id': 'TEXT DEFAULT NULL', 
-            'is_admin': 'INTEGER DEFAULT 0' 
+            'is_admin': 'INTEGER DEFAULT 0', 
+            'language_code': 'TEXT DEFAULT \'en\'' 
         })
         
         # --- Projects Table --- 
@@ -135,38 +143,118 @@ def create_database():
         # --- Bot Settings Table --- 
         _create_bot_settings_table(conn)
         
-        # Final commit for all CREATE TABLE IF NOT EXISTS operations
-        conn.commit() 
-        log.info("Database schema checked/created/updated successfully.")
-    except sqlite3.Error as e:
-        log.error(f"Database error during schema creation/update: {e}", exc_info=True)
-        if conn: conn.rollback() # Rollback on error
-    finally:
-        if conn:
-            conn.close()
+        log.info("Database tables ensured.")
 
-# Helper functions
+        # --- Schema Migrations ---
+        _apply_migrations(cursor)
+
+        conn.commit()
+
+    except sqlite3.Error as e:
+        log.error(f"Database error during creation/migration: {e}", exc_info=True)
+        conn.rollback() # Rollback changes on error
+        raise # Re-raise the exception to be handled by the caller
+    finally:
+        conn.close()
+
+def _apply_migrations(cursor):
+    """Applies necessary schema changes."""
+    log.info("Applying database migrations if needed...")
+    # --- Add language_code column to users table (Migration 1) ---
+    try:
+        cursor.execute("SELECT language_code FROM users LIMIT 1;")
+        log.info("Column 'language_code' already exists in 'users' table.")
+    except sqlite3.OperationalError:
+        log.info("Adding 'language_code' column to 'users' table...")
+        cursor.execute("ALTER TABLE users ADD COLUMN language_code TEXT DEFAULT 'en';")
+        log.info("Column 'language_code' added successfully.")
+
+    # --- Add admin_notify column to users table (Migration 2) ---
+    # ... existing migration logic ...
+
+    # --- Add is_admin column to users table (Migration 3 - Check if needed) ---
+    # ... existing migration logic ...
+
+    log.info("Database migrations complete.")
+
+# --- User Management ---
+# Moved these functions up to ensure get_db_connection is defined before use
+
 def add_user(user_id, first_name, last_name):
     """Adds or updates a user in the database."""
     conn = None
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db_connection() # Use helper function
         cursor = conn.cursor()
-        # Insert or ignore if user exists, but update names if provided
+        # Use INSERT OR IGNORE to handle existing users gracefully
         cursor.execute('''
-            INSERT INTO users (user_id, first_name, last_name) VALUES (?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                first_name = excluded.first_name,
-                last_name = excluded.last_name
-            WHERE first_name != excluded.first_name OR last_name != excluded.last_name
-        ''', (user_id, first_name, last_name))
+            INSERT OR IGNORE INTO users (user_id, first_name, last_name, language_code)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, first_name, last_name, 'en')) # Default to 'en' on creation
         conn.commit()
-        log.debug(f"User {user_id} added or updated.")
+        if cursor.rowcount > 0:
+             log.info(f"Added user {user_id}.")
+        else:
+             log.info(f"User {user_id} already exists, ignored insert.")
+             # Optionally, update first/last name here if needed
+             # cursor.execute("UPDATE users SET first_name = ?, last_name = ? WHERE user_id = ?", 
+             #                (first_name, last_name, user_id))
+             # conn.commit()
+             # log.info(f"Updated names for existing user {user_id}")
+
     except sqlite3.Error as e:
-        log.error(f"Database error adding/updating user {user_id}: {e}")
+        log.error(f"Error adding/updating user {user_id}: {e}", exc_info=True)
+        if conn: conn.rollback()
     finally:
         if conn:
             conn.close()
+
+def get_user_language(user_id):
+    """Gets the preferred language code for a user."""
+    conn = None
+    try:
+        conn = get_db_connection() # Use helper function
+        cursor = conn.cursor()
+        cursor.execute("SELECT language_code FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        # conn.row_factory = sqlite3.Row is set by get_db_connection()
+        if result and result['language_code']:
+            return result['language_code']
+        return 'en' # Return default language 'en'
+    except sqlite3.Error as e:
+        log.error(f"Error getting language for user {user_id}: {e}", exc_info=True)
+        return 'en' # Return default on error
+    except TypeError as e: # Catch potential Row factory issue explicitly
+        log.error(f"TypeError accessing language for user {user_id}. DB row format issue? Error: {e}", exc_info=True)
+        return 'en' # Return default on this error too
+    finally:
+        if conn:
+            conn.close()
+
+def set_user_language(user_id, language_code):
+    """Sets the preferred language code for a user."""
+    conn = None
+    try:
+        conn = get_db_connection() # Use helper function
+        cursor = conn.cursor()
+        # Optional: Validate if language_code is in SUPPORTED_LANGUAGES from config?
+        cursor.execute("UPDATE users SET language_code = ? WHERE user_id = ?", (language_code, user_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"Set language to '{language_code}' for user {user_id}")
+            return True
+        else:
+            log.warning(f"Attempted to set language for non-existent user {user_id}")
+            return False # User not found
+    except sqlite3.Error as e:
+        log.error(f"Error setting language for user {user_id}: {e}", exc_info=True)
+        if conn: conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+# --- Rest of the original file ...
 
 def set_current_project(user_id, project_id):
     """Sets the current project for a user, clearing the current task."""

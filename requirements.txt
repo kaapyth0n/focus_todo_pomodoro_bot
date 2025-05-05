@@ -1,4 +1,9 @@
 python-telegram-bot[job-queue]
 python-dotenv
+Flask
+APScheduler
 google-api-python-client
+google-auth-httplib2
 google-auth-oauthlib
+python-i18n
+PyYAML

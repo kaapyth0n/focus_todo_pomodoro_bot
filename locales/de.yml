@@ -1,0 +1,235 @@
+de:
+  welcome: "Willkommen bei deinem Fokus-To-Do-Listen-Bot! Benutze /create_project, um loszulegen."
+  select_language: "Bitte wähle deine bevorzugte Sprache:"
+  language_set: "Sprache auf %{language_name} gesetzt."
+  # Reply Keyboard Buttons
+  button_start_work: "🚀 Arbeit starten"
+  button_pause: "⏸️ Pause"
+  button_resume: "▶️ Fortsetzen"
+  button_stop: "⏹️ Stopp"
+  button_report: "📊 Bericht"
+  button_break_5: "☕️ Pause (5 Min.)"
+  button_list_projects: "📂 Projekte"
+  button_list_tasks: "📝 Aufgaben"
+  # Error Messages
+  error_db: "Ein Fehler bei der Datenbankverbindung ist aufgetreten. Bitte versuche es später erneut."
+  error_unexpected: "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es später erneut."
+  # Prompts
+  main_menu_prompt: "Hauptmenü:"
+  # Project Management
+  project_already_exists: "Projekt \"%{existing_name}\" existiert bereits."
+  project_created_selected: "Projekt \"%{project_name}\" erstellt und ausgewählt! Verwende /list_tasks, um Aufgaben hinzuzufügen."
+  project_create_prompt: "Wie soll das neue Projekt heißen? (Sende /cancel zum Abbrechen)"
+  project_create_invalid_name: "Ungültiger Name. Bitte gib einen Namen an (max. 100 Zeichen). Sende /cancel zum Abbrechen."
+  project_selected: "Projekt \"%{project_name}\" ausgewählt."
+  project_not_found: "Projekt nicht gefunden. Verwende /list_projects oder /create_project."
+  project_list_title: "Wähle ein aktives Projekt (➡️ = aktuell) oder markiere es als erledigt:"
+  project_none_found: "Keine aktiven Projekte gefunden. Eins erstellen?"
+  button_mark_project_done: "✅ Als erledigt markieren"
+  button_view_archived_projects: "🗄️ Archivierte Projekte anzeigen"
+  button_create_new_project: "➕ Neues Projekt erstellen"
+  # Generic Errors
+  error_accessing_data: "Beim Zugriff auf die Daten ist ein Fehler aufgetreten. Bitte versuche es später erneut."
+  # Deletion Prompts
+  delete_project_none: "Du hast keine Projekte zum Löschen."
+  delete_project_prompt: "Welches Projekt soll gelöscht werden? (Unwiderruflich!) Klicke zum Bestätigen:"
+  # Task Management
+  task_already_exists: "Aufgabe \"%{existing_name}\" existiert bereits in diesem Projekt."
+  task_created_selected: "Aufgabe \"%{task_name}\" zu Projekt \"%{project_name}\" hinzugefügt und ausgewählt! Du kannst jetzt /start_timer verwenden."
+  task_create_no_project: "Bitte wähle zuerst ein Projekt mit /list_projects aus."
+  task_create_prompt: "Wie soll die neue Aufgabe im Projekt \"%{project_name}\" heißen? (Sende /cancel zum Abbrechen)"
+  task_create_invalid_name: "Ungültiger Name. Bitte gib einen Namen an (max. 100 Zeichen). Sende /cancel zum Abbrechen."
+  task_selected: "Aufgabe \"%{task_name}\" in Projekt \"%{project_name}\" ausgewählt."
+  task_not_found: "Aufgabe im Projekt \"%{project_name}\" nicht gefunden. Verwende /list_tasks oder /create_task."
+  task_list_title: "Aktive Aufgaben in '%{project_name}' (➡️ = aktuell):"
+  task_none_found_in_project: "Keine aktiven Aufgaben im Projekt '%{project_name}' gefunden. Eine erstellen?"
+  button_mark_task_done: "✅ Als erledigt markieren"
+  button_view_archived_tasks: "🗄️ Archivierte Aufgaben anzeigen"
+  button_create_new_task: "➕ Neue Aufgabe erstellen"
+  button_back_to_projects: "« Zurück zu Projekten"
+  # Deletion Prompts (Tasks)
+  delete_task_no_project: "Bitte wähle zuerst ein Projekt aus, bevor du Aufgaben löschst."
+  delete_task_none: "Keine Aufgaben im Projekt '%{project_name}' zum Löschen gefunden."
+  delete_task_prompt: "Welche Aufgabe in '%{project_name}' soll gelöscht werden? Klicke zum Bestätigen:"
+  # Generic Actions
+  creation_cancelled: "Erstellung abgebrochen."
+  # Generic Text Fallbacks
+  text_the_project: "das Projekt"
+  text_selected_project: "Ausgewähltes Projekt"
+  text_current_project: "Aktuelles Projekt"
+  # Timer Management
+  timer_already_active: "Ein anderer Timer ist bereits aktiv. Bitte zuerst /stop_timer verwenden."
+  timer_schedule_failed: "Entschuldigung, der Timer konnte nicht geplant werden. Bitte versuche es erneut."
+  timer_view_button: "Timer anzeigen"
+  timer_work_started: "Arbeits-Timer für Aufgabe \"%{task_name}\" im Projekt \"%{project_name}\" gestartet (%{duration_minutes} Minuten)."
+  timer_work_started_no_project: "Arbeits-Timer gestartet (%{duration_minutes} Minuten)."
+  timer_break_started: "Pausen-Timer gestartet (%{duration_minutes} Minuten)."
+  timer_needs_project_task: "Bitte wähle zuerst ein aktives Projekt und eine aktive Aufgabe aus."
+  timer_project_archived: "Das ausgewählte Projekt ist als erledigt/archiviert markiert. Bitte wähle ein aktives Projekt."
+  timer_task_archived: "Die ausgewählte Aufgabe ist als erledigt/archiviert markiert. Bitte wähle eine aktive Aufgabe."
+  timer_project_task_missing: "Fehler: Die Informationen zum ausgewählten Projekt/zur Aufgabe konnten nicht abgerufen werden."
+  timer_invalid_duration: "Die Dauer muss zwischen 1 und 120 Minuten liegen."
+  timer_invalid_duration_fallback: "Ungültige Dauer. Standardmäßige %{default_duration} Minuten werden verwendet."
+  timer_finished_work_unselected: "⏱️ Arbeits-Timer beendet (%{duration_minutes} Min.), aber Projekt/Aufgabe war nicht ausgewählt. Zeit nicht protokolliert."
+  timer_finished_work_success: "✅ Zeit abgelaufen! Arbeitseinheit abgeschlossen.\n\nProjekt: %{project_name}\nAufgabe: %{task_name}\nDauer: %{duration_minutes} Minuten"
+  timer_finished_break_success: "🧘 Pause beendet (%{duration_minutes} Minuten). Zeit für die Arbeit!"
+  timer_button_break_5: "☕️ 5 Min. Pause"
+  timer_button_break_15: "☕️☕️ 15 Min. Pause"
+  timer_error_finishing: "Beim Beenden des Timers ist ein unerwarteter Fehler aufgetreten."
+  timer_not_running: "Kein %{timer_type} läuft."
+  timer_paused: "%{timer_type} pausiert. Angesammelt: %{accumulated_time} Min."
+  timer_state_inconsistent: "Interner Fehler: Timer-Status inkonsistent."
+  timer_not_paused: "Kein Timer ist pausiert."
+  timer_already_completed: "Timer bereits abgeschlossen."
+  timer_resumed: "%{timer_type} fortgesetzt. %{remaining_time} Minuten verbleibend."
+  timer_no_timer_active: "Kein Timer läuft oder ist pausiert."
+  timer_stopped_work: "⏹️ Arbeits-Timer gestoppt.\n\nProjekt: %{project_name}\nAufgabe: %{task_name}\nDauer: %{accumulated_time} / %{target_duration} Minuten"
+  timer_stopped_work_missing: "⏹️ Arbeits-Timer gestoppt.\n\nDauer: %{accumulated_time} / %{target_duration} Minuten (Projekt-/Aufgabeninfo fehlt)"
+  timer_stopped_work_unselected: "⏹️ Arbeits-Timer gestoppt.\n\nDauer: %{accumulated_time} / %{target_duration} Minuten (Kein Projekt/Aufgabe ausgewählt)"
+  timer_stopped_break: "⏹️ Pausen-Timer gestoppt.\n\nDauer: %{accumulated_time} / %{target_duration} Minuten"
+  timer_error_stopping: "Beim Stoppen des Timers ist ein unerwarteter Fehler aufgetreten."
+  timer_error_pausing: "Beim Pausieren des Timers ist ein unerwarteter Fehler aufgetreten."
+  timer_error_resuming: "Beim Fortsetzen des Timers ist ein unerwarteter Fehler aufgetreten."
+  timer_error_starting: "Beim Starten des Timers ist ein unerwarteter Fehler aufgetreten."
+  timer_error_starting_break: "Beim Starten des Pausen-Timers ist ein unerwarteter Fehler aufgetreten."
+  timer_error_saving_session: "Beim Speichern der Sitzungsdaten ist ein Fehler aufgetreten."
+  # Report Management
+  report_title: "*%{report_type} Bericht*"
+  report_title_error: "*%{report_type} Bericht* (Fehler)"
+  report_title_date_error: "*%{report_type} Bericht* (Datumsfehler)"
+  report_date_today: "Heute"
+  report_date_yesterday: "Gestern"
+  report_week_this: "Diese Woche"
+  report_week_last: "Letzte Woche"
+  report_week_range: "%{start_date} - %{end_date}"
+  report_month_format: "%{month_name} %{year}"
+  report_data_error: "Berichtsdaten konnten nicht abgerufen werden."
+  report_no_sessions_day: "Für diesen Tag wurden keine Arbeitssitzungen aufgezeichnet."
+  report_no_sessions_week: "Für diese Woche wurden keine Arbeitssitzungen aufgezeichnet."
+  report_no_sessions_month: "Für diesen Monat wurden keine Arbeitssitzungen aufgezeichnet."
+  report_total_time_minutes: "Gesamtzeit: *%{total_minutes} Minuten*"
+  report_total_time_week: "Gesamtzeit diese Woche: *%{total_minutes} Minuten*"
+  report_total_time_month: "Gesamtzeit diesen Monat: *%{total_minutes} Minuten* (%{total_hours} Stunden)"
+  report_project_task_breakdown: "*Projekt- & Aufgabenaufschlüsselung:*"
+  report_daily_breakdown: "*Tägliche Aufschlüsselung:*"
+  report_project_line: "• *%{project_name}:* %{minutes} Min."
+  report_project_line_percentage: "• *%{project_name}:* %{minutes} Min. (%{percentage}%%)" # Escaped % for percentage
+  report_task_line: "    - %{task_name}: %{minutes} Min."
+  report_daily_line: "• %{date}: %{minutes} Min."
+  report_no_project_task_data: "Keine spezifische Projekt-/Aufgabenzeit für diesen Zeitraum aufgezeichnet."
+  report_button_prev_day: "⬅️ Vorheriger Tag"
+  report_button_next_day: "Nächster Tag ➡️"
+  report_button_prev_week: "⬅️ Vorherige Woche"
+  report_button_next_week: "Nächste Woche ➡️"
+  report_button_prev_month: "⬅️ Vorheriger Monat"
+  report_button_next_month: "Nächster Monat ➡️"
+  report_select_prompt: "Für welchen Zeitraum möchtest du den Arbeitsbericht?"
+  report_button_daily: "📊 Täglich (Heute)"
+  report_button_weekly: "📈 Wöchentlich (Diese Woche)"
+  report_button_monthly: "📅 Monatlich (Dieser Monat)"
+  report_unknown_type: "Unbekannter Berichtstyp. Verwende die Buttons oder gib täglich, wöchentlich, monatlich an."
+  report_error_processing: "Beim Verarbeiten des Berichtsbefehls ist ein Fehler aufgetreten."
+  # Help Command
+  help_text: |
+    Hier sind die verfügbaren Befehle:
+
+    *Projektverwaltung:*
+      `/create_project "Projektname"` - Neues Projekt erstellen.
+      `/list_projects` - Projekte auflisten und auswählen (➡️ zeigt aktuelles).
+      `/select_project "Projektname"` - Projekt nach Namen auswählen.
+      `/delete_project` - Projekt und seine Daten löschen.
+
+    *Aufgabenverwaltung:*
+      `/create_task "Aufgabenname"` - Aufgabe zum aktuellen Projekt hinzufügen.
+      `/list_tasks` - Aufgaben im aktuellen Projekt auflisten und auswählen (➡️ zeigt aktuelle).
+      `/select_task "Aufgabenname"` - Aufgabe nach Namen auswählen.
+      `/delete_task` - Aufgabe und ihre Daten löschen.
+
+    *Timer-Steuerung:*
+      `/start_timer [Minuten]` - Pomodoro starten (Standard 25 Min.). Bsp.: `/start_timer 45`
+      `/pause_timer` - Aktuellen Timer pausieren.
+      `/resume_timer` - Pausierten Timer fortsetzen.
+      `/stop_timer` - Timer vorzeitig stoppen und Zeit protokollieren.
+      (Pausen werden nach Arbeitseinheiten oder per Button angeboten)
+
+    *Berichte:*
+      `/report` - Tägliche, wöchentliche oder monatliche Arbeitszeitberichte abrufen.
+
+    *Google Tabellen:*
+      `/connect_google` - Zugriff auf Google Tabellen autorisieren.
+      `/export_to_sheets <SPREADSHEET_ID> [TabellenblattName]` - Alle Sitzungsdaten exportieren.
+
+    *Sonstiges:*
+      `/language` - Bevorzugte Sprache einstellen.
+      `/help` - Diese Hilfenachricht anzeigen.
+      `/start` - Initialisieren oder Willkommensnachricht anzeigen.
+  # Callback-triggered prompts
+  callback_create_project_prompt: "Wie soll das neue Projekt heißen? (Sende eine Nachricht mit dem Projektnamen)"
+  callback_create_task_prompt: "Wie soll die neue Aufgabe im Projekt '%{project_name}' heißen? (Sende eine Nachricht mit dem Aufgabennamen)"
+  # Callback error messages (Short versions for query.answer)
+  error_db_short: "Datenbankfehler"
+  error_unexpected_short: "Unerwarteter Fehler"
+  error_list_archived_projects: "Beim Auflisten archivierter Projekte ist ein Fehler aufgetreten."
+  error_list_archived_tasks: "Beim Auflisten archivierter Aufgaben ist ein Fehler aufgetreten."
+  error_processing_selection: "Fehler beim Verarbeiten der Auswahl."
+  error_selecting_project_db: "Datenbankfehler bei der Projektauswahl."
+  error_selecting_project_unexpected: "Unerwarteter Fehler bei der Projektauswahl."
+  error_selecting_task_no_project: "Bitte wähle zuerst ein Projekt mit /select_project aus."
+  error_task_not_found_or_mismatch: "Aufgabe nicht gefunden oder gehört nicht zum aktuellen Projekt."
+  error_selecting_task_db: "Datenbankfehler bei der Aufgabenauswahl."
+  error_selecting_task_unexpected: "Unerwarteter Fehler bei der Aufgabenauswahl."
+  deletion_cancelled: "Löschen abgebrochen."
+  error_invalid_delete_data: "Fehler: Ungültige Löschdaten."
+  delete_confirm_project: "❗️ FINALE BESTÄTIGUNG: Projekt '%{project_name}' löschen?\n(Dies löscht ALLE zugehörigen Aufgaben und Zeiteinträge!) "
+  delete_confirm_task: "❗️ FINALE BESTÄTIGUNG: Aufgabe '%{task_name}' löschen?\n(Dies löscht die zugehörigen Zeiteinträge!) "
+  error_project_not_found_delete: "Fehler: Projekt nicht gefunden."
+  error_finding_project_delete: "Fehler beim Finden des zu löschenden Projekts."
+  project_deleted_success: "Projekt '%{project_name}' und seine Aufgaben gelöscht."
+  project_deleted_fail: "Projekt '%{project_name}' konnte nicht gelöscht werden. Wahrscheinlich Datenbankfehler."
+  error_task_not_found_delete: "Fehler: Aufgabe nicht gefunden."
+  error_finding_task_delete: "Fehler beim Finden der zu löschenden Aufgabe."
+  task_deleted_success: "Aufgabe '%{task_name}' gelöscht."
+  task_deleted_fail: "Aufgabe '%{task_name}' konnte nicht gelöscht werden. Wahrscheinlich Datenbankfehler."
+  error_processing_delete: "Fehler beim Verarbeiten des Löschbefehls."
+  error_db_delete_project: "Datenbankfehler beim Löschen des Projekts."
+  error_unexpected_delete_project: "Unerwarteter Fehler beim Löschen des Projekts."
+  error_db_delete_task: "Datenbankfehler beim Löschen der Aufgabe."
+  error_unexpected_delete_task: "Unerwarteter Fehler beim Löschen der Aufgabe."
+  error_timer_active_break: "Ein anderer Timer ist bereits aktiv! Zuerst stoppen."
+  break_started: "Pausen-Timer für %{duration_minutes} Minuten gestartet!"
+  error_start_break: "Fehler beim Starten des Pausen-Timers."
+  error_start_break_unexpected: "Unerwarteter Fehler beim Starten der Pause."
+  project_archived_toast: "Projekt '%{project_name}' als erledigt markiert & archiviert."
+  project_archive_fail: "Projekt konnte nicht als erledigt markiert werden."
+  task_archived_toast: "Aufgabe '%{task_name}' als erledigt markiert & archiviert."
+  task_archive_fail: "Aufgabe konnte nicht als erledigt markiert werden."
+  project_reactivated_toast: "Projekt '%{project_name}' reaktiviert."
+  project_reactivate_fail: "Projekt konnte nicht reaktiviert werden."
+  task_reactivated_toast: "Aufgabe '%{task_name}' reaktiviert."
+  task_reactivate_fail: "Aufgabe konnte nicht reaktiviert werden."
+  error_generic: "Ein Fehler ist aufgetreten."
+  error_set_language_fail: "Entschuldigung, ich konnte diese Sprache nicht einstellen."
+  error_set_language_invalid: "Fehler: Ungültige Sprachauswahldaten."
+  error_set_language_unexpected: "Beim Einstellen der Sprache ist ein unerwarteter Fehler aufgetreten."
+  action_unknown: "Unbekannte Aktion."
+  # Archived List Titles
+  archived_projects_title: "Archivierte Projekte:"
+  archived_tasks_title: "Archivierte Aufgaben in '%{project_name}':"
+  archived_none_found: "Keine archivierten Elemente gefunden."
+  archived_project_no_archive: "Keine archivierten Projekte gefunden."
+  archived_task_no_archive: "Keine archivierten Aufgaben gefunden."
+  button_reactivate: "↩️ Reaktivieren"
+  button_back_to_active_projects: "« Zurück zu aktiven Projekten"
+  button_back_to_active_tasks: "« Zurück zu aktiven Aufgaben"
+  # Generic Fallbacks for Callbacks
+  text_unknown_project: "Unbekanntes Projekt"
+  text_unknown_task: "Unbekannte Aufgabe"
+  # Callback Specific Instructions
+  instruction_create_project: "Verwende den Befehl `/create_project \"Projektname\"`, um dein erstes Projekt hinzuzufügen."
+  instruction_create_task: "Verwende den Befehl `/create_task \"Aufgabenname\"`, um eine Aufgabe zu '%{project_name}' hinzuzufügen."
+  # Callback specific selections
+  project_selected_callback: "Projekt '%{project_name}' ausgewählt. Verwende /list_tasks, um Aufgaben anzuzeigen oder hinzuzufügen."
+  task_selected_callback: "Aufgabe '%{task_name}' ausgewählt."
+  # Deletion confirmation buttons
+  button_confirm_delete: "🔴 Ja, LÖSCHEN!"
+  button_cancel_delete: "�� Nein, abbrechen" 

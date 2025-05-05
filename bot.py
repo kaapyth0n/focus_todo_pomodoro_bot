@@ -500,6 +500,7 @@ async def setup_bot_commands(application: Application):
     """Sets the bot commands menu."""
     commands = [
         BotCommand("start", "Start the bot & show keyboard"),
+        BotCommand("language", "Set preferred language"),
         BotCommand("help", "Show help message"),
         BotCommand("list_projects", "List/select projects"),
         BotCommand("create_project", "Create a new project"),
@@ -566,6 +567,7 @@ def main():
     application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
     application.add_handler(CommandHandler('help', cmd_handlers.help_command))
     application.add_handler(CommandHandler('export_to_sheets', google_auth_handlers.export_to_sheets))
+    application.add_handler(CommandHandler('language', cmd_handlers.set_language_command))
     
     # Register Admin Handlers
     application.add_handler(CommandHandler(admin_handlers.INITIAL_ADMIN_COMMAND.lstrip('/'), admin_handlers.set_initial_admin))
