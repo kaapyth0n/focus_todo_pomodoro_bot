@@ -610,19 +610,10 @@ def main():
     )
     application.add_handler(create_task_conv_handler)
 
-    # Register reply keyboard button handlers
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_START_WORK}$'), cmd_handlers.handle_start_work_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_PAUSE}$'), cmd_handlers.handle_pause_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_RESUME}$'), cmd_handlers.handle_resume_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_STOP}$'), cmd_handlers.handle_stop_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_REPORT}$'), cmd_handlers.handle_report_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_BREAK_5}$'), cmd_handlers.handle_break_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_LIST_PROJECTS}$'), cmd_handlers.handle_list_projects_button))
-    application.add_handler(MessageHandler(filters.Regex(f'^{BTN_LIST_TASKS}$'), cmd_handlers.handle_list_tasks_button))
-
-    # Handle message creation from button callbacks
+    # Handle message creation from button callbacks and general text messages
+    # This handler now maps translated button text to actions
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex(f'^({BTN_START_WORK}|{BTN_PAUSE}|{BTN_RESUME}|{BTN_STOP}|{BTN_REPORT}|{BTN_BREAK_5}|{BTN_LIST_PROJECTS}|{BTN_LIST_TASKS})$'),
+        filters.TEXT & ~filters.COMMAND,
         cmd_handlers.handle_text_message
     ))
 

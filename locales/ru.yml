@@ -95,6 +95,9 @@ ru:
   timer_error_saving_session: "Произошла ошибка при сохранении данных сессии."
   # Report Management
   report_title: "*Отчет за %{report_type}*"
+  report_type_daily: "*Ежедневный отчет*"
+  report_type_weekly: "*Еженедельный отчет*"
+  report_type_monthly: "*Ежемесячный отчет*"
   report_title_error: "*Отчет за %{report_type}* (Ошибка)"
   report_title_date_error: "*Отчет за %{report_type}* (Ошибка даты)"
   report_date_today: "Сегодня"

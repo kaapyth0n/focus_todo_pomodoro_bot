@@ -95,6 +95,9 @@ en:
   timer_error_saving_session: "An error occurred saving the session data."
   # Report Management
   report_title: "*%{report_type} Report*"
+  report_type_daily: "*Daily Report*"
+  report_type_weekly: "*Weekly Report*"
+  report_type_monthly: "*Monthly Report*"
   report_title_error: "*%{report_type} Report* (Error)"
   report_title_date_error: "*%{report_type} Report* (Date Error)"
   report_date_today: "Today"

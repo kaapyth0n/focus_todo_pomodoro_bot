@@ -856,6 +856,10 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         project_id, task_id, project_name, task_name = None, None, None, None
         message = ""
+        
+        # Pre-format accumulated and target times (round accumulated to 2 decimal places)
+        accumulated_time_formatted = f"{final_accumulated_minutes:.2f}" 
+        target_duration_formatted = f"{duration_minutes_target:.0f}" # Target is usually integer
 
         if session_type == 'work':
             project_id = database.get_current_project(user_id)
@@ -866,17 +870,17 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if project_name and task_name:
                      message = _(user_id, 'timer_stopped_work', 
                                    project_name=project_name, task_name=task_name, 
-                                   accumulated_time=final_accumulated_minutes, target_duration=duration_minutes_target)
+                                   accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
                 else: 
                     message = _(user_id, 'timer_stopped_work_missing', 
-                                   accumulated_time=final_accumulated_minutes, target_duration=duration_minutes_target)
+                                   accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
             else:
                 message = _(user_id, 'timer_stopped_work_unselected', 
-                               accumulated_time=final_accumulated_minutes, target_duration=duration_minutes_target)
+                               accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
                 project_id, task_id = None, None # Ensure null if not properly selected
         else: 
             message = _(user_id, 'timer_stopped_break', 
-                           accumulated_time=final_accumulated_minutes, target_duration=duration_minutes_target)
+                           accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
 
         # Add session to DB
         session_added_id = database.add_pomodoro_session(
@@ -951,7 +955,7 @@ def _get_report_title(user_id: int, report_type: str, report_date_str: str | Non
         escaped_status = escape_markdown(status_str, version=2)
         escaped_title_base = escape_markdown(title_base, version=2)
         # Combine, adding escaped parentheses
-        return f"{escaped_title_base} \\({escaped_status}\\)" 
+        return f"{escaped_title_base} ({escaped_status})" 
     except ValueError:
          return escape_markdown(_(user_id, 'report_title_date_error', report_type=report_type.capitalize()), version=2)
     
@@ -966,73 +970,94 @@ async def report_daily(update: Update, context: ContextTypes.DEFAULT_TYPE, offse
     log.info(f"Generating daily report for user {user_id}, offset {offset}")
     report_date, total_minutes, detailed_breakdown = database.get_daily_report(user_id, offset=offset)
     
-    # Get the correctly pre-escaped title from the helper
-    title = _get_report_title(user_id, 'daily', report_date, offset) 
-    report = f"📊 {title}\n\n"
+    # Get base report title content
+    if offset == 0:
+        date_status = _(user_id, 'report_date_today')
+    elif offset == -1:
+        date_status = _(user_id, 'report_date_yesterday')
+    else:
+        try:
+            report_date_obj = datetime.fromisoformat(report_date)
+            date_status = report_date_obj.strftime('%a, %b %d, %Y')
+        except (ValueError, TypeError):
+            date_status = "Unknown Date"
+    
+    # Use a dedicated translation key for each report type
+    report_type = _(user_id, 'report_type_daily')
+    # Create title without requiring a new translation key
+    title = f"{report_type} ({date_status})"
+    
+    # Start building report content
+    report_lines = [f"📊 {title}"]
 
     if report_date is None:
-        report += escape_markdown(_(user_id, 'report_data_error'), version=2)
-        # Send immediately if data error
-        if update.callback_query:
-            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-        else:
-            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-        return
-        
-    if total_minutes == 0:
-        report += escape_markdown(_(user_id, 'report_no_sessions_day'), version=2)
+        report_lines.append(_(user_id, 'report_data_error'))
+    elif total_minutes == 0:
+        report_lines.append(_(user_id, 'report_no_sessions_day'))
     else:
-        total_mins_str = escape_markdown(str(round(total_minutes, 1)), version=2)
-        # Use translated key, manually escape the '*' around the value
-        report += _(user_id, 'report_total_time_minutes', total_minutes=f'*{total_mins_str}*') + "\n\n"
+        # Format total time without asterisks in the code
+        report_lines.append(_(user_id, 'report_total_time_minutes', total_minutes=f"{total_minutes:.1f}"))
         
         if detailed_breakdown:
-            report += escape_markdown(_(user_id, 'report_project_task_breakdown'), version=2) + "\n"
+            report_lines.append("\n" + _(user_id, 'report_project_task_breakdown'))
             for project_data in detailed_breakdown:
-                proj_name = escape_markdown(project_data['project_name'], version=2)
-                proj_mins_str = escape_markdown(str(round(project_data['project_minutes'], 1)), version=2)
-                # Use translated key, manually escape '*' around project name
-                report_line = _(user_id, 'report_project_line', project_name=f'*{proj_name}*', minutes=proj_mins_str)
-                try:
-                    percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
-                    percentage_str = escape_markdown(f"{percentage:.1f}", version=2)
-                    # Manually append escaped percentage and parentheses
-                    report_line += f" ({percentage_str}%)" 
-                except ZeroDivisionError:
-                    pass 
-                report += report_line + "\n"
+                proj_name = project_data['project_name']
+                proj_mins = project_data['project_minutes']
+                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
+                
+                # Add project line without formatting in code
+                report_lines.append(_(user_id, 'report_project_line_percentage', 
+                                    project_name=proj_name, 
+                                    minutes=f"{proj_mins:.1f}", 
+                                    percentage=f"{percentage:.1f}"))
+                
+                # Add task lines
                 for task_data in project_data['tasks']:
-                    task_name = escape_markdown(task_data['task_name'], version=2)
-                    task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
-                    # Use translated key, manually escape the leading '-' for list item
-                    report += _(user_id, 'report_task_line', task_name=task_name, minutes=task_mins_str).replace("-", "\\-") + "\n"
+                    task_name = task_data['task_name']
+                    task_mins = task_data['task_minutes']
+                    report_lines.append(_(user_id, 'report_task_line', 
+                                        task_name=task_name, 
+                                        minutes=f"{task_mins:.1f}"))
         else:
-            report += escape_markdown(_(user_id, 'report_no_project_task_data'), version=2)
+            report_lines.append(_(user_id, 'report_no_project_task_data'))
 
     # Navigation Buttons
     prev_offset = offset - 1
     next_offset = offset + 1
-    keyboard = [[ # Use translated button text
+    keyboard = [[ 
         InlineKeyboardButton(_(user_id, 'report_button_prev_day'), callback_data=f"report_nav:daily:{prev_offset}"),
         InlineKeyboardButton(_(user_id, 'report_button_next_day'), callback_data=f"report_nav:daily:{next_offset}")
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Join lines into final report
+    final_report = "\n".join(report_lines)
 
-    # Send/edit message logic (with MarkdownV2 and fallback)
+    # Send/edit message with Markdown formatting
     try:
         if update.callback_query:
-            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+            await update.callback_query.edit_message_text(
+                final_report, 
+                parse_mode='Markdown',  # Use regular Markdown instead of MarkdownV2
+                reply_markup=reply_markup
+            )
         else:
-            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+            await update.effective_message.reply_text(
+                final_report, 
+                parse_mode='Markdown',  # Use regular Markdown instead of MarkdownV2
+                reply_markup=reply_markup
+            )
     except Exception as e:
-        log.error(f"Failed to send/edit daily report for user {user_id} with MarkdownV2: {e}")
-        # Attempt fallback without Markdown
-        fallback_report = report # Placeholder for unescaping if needed
-        # A simple unescaper (might need refinement)
-        fallback_report = fallback_report.replace("\\*", "*").replace("\\(", "(").replace("\\)", ")").replace("\\-", "-") 
-        if not update.callback_query: 
-             try: await update.effective_message.reply_text(fallback_report, reply_markup=reply_markup) 
-             except Exception as fb_err: log.error(f"Fallback report sending failed: {fb_err}")
+        log.error(f"Failed to send/edit daily report for user {user_id}: {e}")
+        # Fallback to plain text if Markdown fails
+        try:
+            plain_text = final_report.replace('*', '')  # Remove asterisks
+            if update.callback_query:
+                await update.callback_query.edit_message_text(plain_text, reply_markup=reply_markup)
+            else:
+                await update.effective_message.reply_text(plain_text, reply_markup=reply_markup)
+        except Exception as fb_err:
+            log.error(f"Fallback report sending failed: {fb_err}")
 
 async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offset: int = 0):
     """Sends the weekly report with navigation."""
@@ -1040,82 +1065,111 @@ async def report_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE, offs
     log.info(f"Generating weekly report for user {user_id}, offset {offset}")
     week_start_date, total_minutes, daily_breakdown, detailed_project_task_breakdown = database.get_weekly_report(user_id, offset=offset)
     
-    # Get the correctly pre-escaped title from the helper
-    title = _get_report_title(user_id, 'weekly', week_start_date, offset)
-    report = f"📈 {title}\n\n"
+    # Get base report title content
+    if offset == 0:
+        date_status = _(user_id, 'report_week_this')
+    elif offset == -1:
+        date_status = _(user_id, 'report_week_last')
+    else:
+        try:
+            report_date_obj = datetime.fromisoformat(week_start_date)
+            week_end_date = report_date_obj + timedelta(days=6)
+            start_f = report_date_obj.strftime('%b %d')
+            end_f = week_end_date.strftime('%b %d, %Y')
+            date_status = f"{start_f} - {end_f}"
+        except (ValueError, TypeError):
+            date_status = "Unknown Week"
+    
+    # Use a dedicated translation key for each report type
+    report_type = _(user_id, 'report_type_weekly')
+    # Create title without requiring a new translation key
+    title = f"{report_type} ({date_status})"
+    
+    # Start building report content
+    report_lines = [f"📈 {title}"]
 
     if week_start_date is None:
-        report += escape_markdown(_(user_id, 'report_data_error'), version=2)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-        else:
-            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-        return
-
-    if total_minutes == 0:
-        report += escape_markdown(_(user_id, 'report_no_sessions_week'), version=2)
+        report_lines.append(_(user_id, 'report_data_error'))
+    elif total_minutes == 0:
+        report_lines.append(_(user_id, 'report_no_sessions_week'))
     else:
-        total_mins_str = escape_markdown(str(round(total_minutes, 1)), version=2)
-        # Use translated key, manually escape '*'
-        report += _(user_id, 'report_total_time_week', total_minutes=f'*{total_mins_str}*') + "\n\n"
+        # Format total time
+        report_lines.append(_(user_id, 'report_total_time_week', total_minutes=f"{total_minutes:.1f}"))
         
         if daily_breakdown:
-            report += escape_markdown(_(user_id, 'report_daily_breakdown'), version=2) + "\n"
+            report_lines.append("\n" + _(user_id, 'report_daily_breakdown'))
             for date_str, minutes in daily_breakdown:
-                minutes_str = escape_markdown(str(round(minutes, 1)), version=2)
                 try:
-                    # Format date universally, translate the line pattern
-                    date_obj_str = escape_markdown(datetime.fromisoformat(date_str).strftime("%a, %b %d"), version=2)
-                    report += _(user_id, 'report_daily_line', date=date_obj_str, minutes=minutes_str) + "\n"
+                    date_obj = datetime.fromisoformat(date_str)
+                    date_display = date_obj.strftime("%a, %b %d")
+                    report_lines.append(_(user_id, 'report_daily_line', 
+                                        date=date_display, 
+                                        minutes=f"{minutes:.1f}"))
                 except (ValueError, TypeError):
-                    report += _(user_id, 'report_daily_line', date=escape_markdown(date_str, version=2), minutes=minutes_str) + "\n"
-            report += "\n"
+                    report_lines.append(_(user_id, 'report_daily_line', 
+                                        date=date_str, 
+                                        minutes=f"{minutes:.1f}"))
+        
         if detailed_project_task_breakdown:
-            report += escape_markdown(_(user_id, 'report_project_task_breakdown'), version=2) + "\n"
+            report_lines.append("\n" + _(user_id, 'report_project_task_breakdown'))
             for project_data in detailed_project_task_breakdown:
-                proj_name = escape_markdown(project_data['project_name'], version=2)
-                proj_mins_str = escape_markdown(str(round(project_data['project_minutes'], 1)), version=2)
-                # Use translated key, manually escape '*'
-                report_line = _(user_id, 'report_project_line', project_name=f'*{proj_name}*', minutes=proj_mins_str)
-                try:
-                    percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
-                    percentage_str = escape_markdown(f"{percentage:.1f}", version=2)
-                    # Manually append escaped percentage and parentheses
-                    report_line += f" ({percentage_str}%)"
-                except ZeroDivisionError:
-                    pass
-                report += report_line + "\n"
+                proj_name = project_data['project_name']
+                proj_mins = project_data['project_minutes']
+                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
+                
+                # Add project line without formatting in code
+                report_lines.append(_(user_id, 'report_project_line_percentage', 
+                                    project_name=proj_name, 
+                                    minutes=f"{proj_mins:.1f}", 
+                                    percentage=f"{percentage:.1f}"))
+                
+                # Add task lines
                 for task_data in project_data['tasks']:
-                    task_name = escape_markdown(task_data['task_name'], version=2)
-                    task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
-                    # Use translated key, manually escape leading '-'
-                    report += _(user_id, 'report_task_line', task_name=task_name, minutes=task_mins_str).replace("-", "\\-") + "\n"
-        else:
-            report += escape_markdown(_(user_id, 'report_no_project_task_data'), version=2)
+                    task_name = task_data['task_name']
+                    task_mins = task_data['task_minutes']
+                    report_lines.append(_(user_id, 'report_task_line', 
+                                        task_name=task_name, 
+                                        minutes=f"{task_mins:.1f}"))
+        elif not daily_breakdown:
+            report_lines.append(_(user_id, 'report_no_project_task_data'))
 
     # Navigation Buttons
     prev_offset = offset - 1
     next_offset = offset + 1
-    keyboard = [[ # Use translated button text
+    keyboard = [[ 
         InlineKeyboardButton(_(user_id, 'report_button_prev_week'), callback_data=f"report_nav:weekly:{prev_offset}"),
         InlineKeyboardButton(_(user_id, 'report_button_next_week'), callback_data=f"report_nav:weekly:{next_offset}")
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Join lines into final report
+    final_report = "\n".join(report_lines)
 
-    # Send/edit message logic (with MarkdownV2 and fallback)
+    # Send/edit message with Markdown formatting
     try:
         if update.callback_query:
-            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+            await update.callback_query.edit_message_text(
+                final_report, 
+                parse_mode='Markdown',  # Use regular Markdown instead of MarkdownV2
+                reply_markup=reply_markup
+            )
         else:
-            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+            await update.effective_message.reply_text(
+                final_report, 
+                parse_mode='Markdown',  # Use regular Markdown instead of MarkdownV2
+                reply_markup=reply_markup
+            )
     except Exception as e:
-        log.error(f"Failed to send/edit weekly report for user {user_id} with MarkdownV2: {e}")
-        # Attempt fallback without Markdown
-        fallback_report = report # Placeholder for unescaping if needed
-        fallback_report = fallback_report.replace("\\*", "*").replace("\\(", "(").replace("\\)", ")").replace("\\-", "-") 
-        if not update.callback_query: 
-             try: await update.effective_message.reply_text(fallback_report, reply_markup=reply_markup) 
-             except Exception as fb_err: log.error(f"Fallback report sending failed: {fb_err}")
+        log.error(f"Failed to send/edit weekly report for user {user_id}: {e}")
+        # Fallback to plain text if Markdown fails
+        try:
+            plain_text = final_report.replace('*', '')  # Remove asterisks
+            if update.callback_query:
+                await update.callback_query.edit_message_text(plain_text, reply_markup=reply_markup)
+            else:
+                await update.effective_message.reply_text(plain_text, reply_markup=reply_markup)
+        except Exception as fb_err:
+            log.error(f"Fallback report sending failed: {fb_err}")
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Initial call to report_command (no args or specific type) shows buttons
@@ -1150,90 +1204,92 @@ async def report_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE, off
     log.info(f"Generating monthly report for user {user_id}, offset {offset}")
     month_start_date, total_minutes, detailed_breakdown = database.get_monthly_report(user_id, offset=offset)
     
-    # Get the correctly pre-escaped title from the helper
-    title = _get_report_title(user_id, 'monthly', month_start_date, offset)
-    report = f"📅 {title}\n\n"
+    # Get base report title content
+    try:
+        month_date = datetime.fromisoformat(month_start_date)
+        date_status = month_date.strftime("%B %Y")
+    except (ValueError, TypeError):
+        date_status = "Unknown Month"
+    
+    # Use a dedicated translation key for each report type
+    report_type = _(user_id, 'report_type_monthly')
+    # Create title without requiring a new translation key
+    title = f"{report_type} ({date_status})"
+    
+    # Start building report content
+    report_lines = [f"📅 {title}"]
 
     if month_start_date is None:
-        report += escape_markdown(_(user_id, 'report_data_error'), version=2)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-        else:
-            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2)
-        return
-
-    if total_minutes == 0:
-        report += escape_markdown(_(user_id, 'report_no_sessions_month'), version=2)
+        report_lines.append(_(user_id, 'report_data_error'))
+    elif total_minutes == 0:
+        report_lines.append(_(user_id, 'report_no_sessions_month'))
     else:
-        total_mins_str = escape_markdown(str(round(total_minutes, 1)), version=2)
-        total_hours_str = escape_markdown(str(round(total_minutes/60, 1)), version=2)
-        # Use translated key, manually escape '*' around minutes and parentheses/hours
-        report += _(user_id, 'report_total_time_month', 
-                    total_minutes=f'*{total_mins_str}*', 
-                    total_hours=f'\\({total_hours_str} hours\\)') + "\n\n"
+        # Format total time
+        hours = total_minutes / 60
+        report_lines.append(_(user_id, 'report_total_time_month', 
+                             total_minutes=f"{total_minutes:.1f}", 
+                             total_hours=f"{hours:.1f}"))
         
         if detailed_breakdown:
-            report += escape_markdown(_(user_id, 'report_project_task_breakdown'), version=2) + "\n"
+            report_lines.append("\n" + _(user_id, 'report_project_task_breakdown'))
             for project_data in detailed_breakdown:
-                proj_name = escape_markdown(project_data['project_name'], version=2)
-                proj_mins_str = escape_markdown(str(round(project_data['project_minutes'], 1)), version=2)
-                # Use translated key, manually escape '*'
-                report_line = _(user_id, 'report_project_line', project_name=f'*{proj_name}*', minutes=proj_mins_str)
-                try:
-                    percentage = (project_data['project_minutes'] / total_minutes) * 100 if total_minutes > 0 else 0
-                    percentage_str = escape_markdown(f"{percentage:.1f}", version=2)
-                    # Manually append escaped percentage and parentheses
-                    report_line += f" \\({percentage_str}%\\)"
-                except ZeroDivisionError:
-                    pass
-                report += report_line + "\n"
+                proj_name = project_data['project_name']
+                proj_mins = project_data['project_minutes']
+                percentage = (proj_mins / total_minutes) * 100 if total_minutes > 0 else 0
+                
+                # Add project line without formatting in code
+                report_lines.append(_(user_id, 'report_project_line_percentage', 
+                                    project_name=proj_name, 
+                                    minutes=f"{proj_mins:.1f}", 
+                                    percentage=f"{percentage:.1f}"))
+                
+                # Add task lines
                 for task_data in project_data['tasks']:
-                    task_name = escape_markdown(task_data['task_name'], version=2)
-                    task_mins_str = escape_markdown(str(round(task_data['task_minutes'], 1)), version=2)
-                    # Use translated key, manually escape leading '-'
-                    report += _(user_id, 'report_task_line', task_name=task_name, minutes=task_mins_str).replace("-", "\\-") + "\n"
+                    task_name = task_data['task_name']
+                    task_mins = task_data['task_minutes']
+                    report_lines.append(_(user_id, 'report_task_line', 
+                                        task_name=task_name, 
+                                        minutes=f"{task_mins:.1f}"))
         else:
-            report += escape_markdown(_(user_id, 'report_no_project_task_data'), version=2)
+            report_lines.append(_(user_id, 'report_no_project_task_data'))
 
     # Navigation Buttons
     prev_offset = offset - 1
     next_offset = offset + 1
-    keyboard = [[ # Use translated button text
+    keyboard = [[ 
         InlineKeyboardButton(_(user_id, 'report_button_prev_month'), callback_data=f"report_nav:monthly:{prev_offset}"),
         InlineKeyboardButton(_(user_id, 'report_button_next_month'), callback_data=f"report_nav:monthly:{next_offset}")
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Join lines into final report
+    final_report = "\n".join(report_lines)
 
-    # Send/edit message logic (with MarkdownV2 and fallback)
+    # Send/edit message with Markdown formatting
     try:
         if update.callback_query:
-            await update.callback_query.edit_message_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+            await update.callback_query.edit_message_text(
+                final_report, 
+                parse_mode='Markdown',  # Use regular Markdown instead of MarkdownV2
+                reply_markup=reply_markup
+            )
         else:
-            await update.effective_message.reply_text(report, parse_mode=constants.ParseMode.MARKDOWN_V2, reply_markup=reply_markup)
+            await update.effective_message.reply_text(
+                final_report, 
+                parse_mode='Markdown',  # Use regular Markdown instead of MarkdownV2
+                reply_markup=reply_markup
+            )
     except Exception as e:
-        log.error(f"Failed to send/edit monthly report for user {user_id} with MarkdownV2: {e}")
-        # Attempt fallback without Markdown
-        fallback_report = report # Placeholder for unescaping if needed
-        fallback_report = fallback_report.replace("\\*", "*").replace("\\(", "(").replace("\\)", ")").replace("\\-", "-") 
-        if not update.callback_query: 
-             try: await update.effective_message.reply_text(fallback_report, reply_markup=reply_markup) 
-             except Exception as fb_err: log.error(f"Fallback report sending failed: {fb_err}")
-
-# --- Help Command ---
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    log.info(f"User {user_id} requested /help")
-    help_text = _(user_id, 'help_text') # Get translated help text
-    try:
-        # Use MarkdownV2 for better formatting if desired, but requires escaping special chars
-        # The YAML uses Markdown, so we should be okay here, but be cautious.
-        await update.message.reply_text(help_text, parse_mode='Markdown') 
-    except Exception as e:
-         log.error(f"Failed to send help message: {e}")
-         try: # Fallback: send plain text
-             await update.message.reply_text(help_text)
-         except Exception as fb_e:
-             log.error(f"Failed to send fallback help message: {fb_e}")
+        log.error(f"Failed to send/edit monthly report for user {user_id}: {e}")
+        # Fallback to plain text if Markdown fails
+        try:
+            plain_text = final_report.replace('*', '')  # Remove asterisks
+            if update.callback_query:
+                await update.callback_query.edit_message_text(plain_text, reply_markup=reply_markup)
+            else:
+                await update.effective_message.reply_text(plain_text, reply_markup=reply_markup)
+        except Exception as fb_err:
+            log.error(f"Fallback report sending failed: {fb_err}")
 
 # --- Reply Keyboard Button Handlers ---
 
@@ -1242,30 +1298,31 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # For now, we'll leave the handle_***_button functions, but they likely won't work correctly
 # until the Regex matching in bot.py is updated or the handling strategy changes.
 
+# DEPRECATED: These individual handlers are no longer triggered by Regex in bot.py
+# They might still be called internally by handle_text_message
 async def handle_start_work_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Start Work' button press by calling start_timer."""
-    # This will likely FAIL now because the regex in bot.py expects English
-    log.debug(f"User {update.message.from_user.id} pressed translated 'start work' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'start work' action via text")
     await start_timer(update, context)
 
 async def handle_pause_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Pause' button press by calling pause_timer."""
-    log.debug(f"User {update.message.from_user.id} pressed translated 'pause' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'pause' action via text")
     await pause_timer(update, context)
 
 async def handle_resume_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Resume' button press by calling resume_timer."""
-    log.debug(f"User {update.message.from_user.id} pressed translated 'resume' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'resume' action via text")
     await resume_timer(update, context)
 
 async def handle_stop_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Stop' button press by calling stop_timer."""
-    log.debug(f"User {update.message.from_user.id} pressed translated 'stop' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'stop' action via text")
     await stop_timer(update, context)
 
 async def handle_report_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Report' button press by calling report_command."""
-    log.debug(f"User {update.message.from_user.id} pressed translated 'report' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'report' action via text")
     # Clear args for report_command when triggered by button
     context.args = []
     await report_command(update, context)
@@ -1273,12 +1330,13 @@ async def handle_report_button(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_break_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Break (5m)' button press by calling start_break_timer."""
     user_id = update.message.from_user.id
-    log.debug(f"User {user_id} pressed translated 'break' button")
+    log.debug(f"User {user_id} triggered 'break' action via text")
     
     # Check if another timer is active before starting break
     if user_id in timer_states and timer_states[user_id]['state'] != 'stopped':
         log.warning(f"User {user_id} pressed break button while timer active.")
-        await update.message.reply_text('Another timer is already active. Please /stop_timer first.')
+        # Use translation for the error message
+        await update.message.reply_text(_(user_id, 'error_timer_active_break')) 
         return
 
     # Start the break timer (using the internal function directly)
@@ -1286,20 +1344,44 @@ async def handle_break_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_list_projects_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Projects' button press by calling list_projects."""
-    log.debug(f"User {update.message.from_user.id} pressed translated 'projects' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'projects' action via text")
     await list_projects(update, context)
 
 async def handle_list_tasks_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'Tasks' button press by calling list_tasks."""
-    log.debug(f"User {update.message.from_user.id} pressed translated 'tasks' button")
+    log.debug(f"User {update.message.from_user.id} triggered 'tasks' action via text")
     await list_tasks(update, context)
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles text messages for creating projects and tasks from button interactions."""
+    """Handles text messages, mapping Reply Keyboard buttons and project/task creation."""
     user_id = update.message.from_user.id
     text = update.message.text
     
-    # Check if we're expecting a project name
+    # Map Reply Keyboard button text to actions based on user language
+    button_map = {
+        'button_start_work': handle_start_work_button,
+        'button_pause': handle_pause_button,
+        'button_resume': handle_resume_button,
+        'button_stop': handle_stop_button,
+        'button_report': handle_report_button,
+        'button_break_5': handle_break_button,
+        'button_list_projects': handle_list_projects_button,
+        'button_list_tasks': handle_list_tasks_button,
+    }
+    
+    button_pressed = False
+    for key, handler_func in button_map.items():
+        translated_text = _(user_id, key)
+        if text == translated_text:
+            log.info(f"User {user_id} pressed translated button: '{text}' (mapped to {key})")
+            await handler_func(update, context)
+            button_pressed = True
+            break
+            
+    if button_pressed:
+        return # Don't process further if it was a button press
+        
+    # Check if we're expecting a project name (for creation via callback button)
     if context.user_data.get(user_id, {}).get('expecting_project_name'):
         log.debug(f"User {user_id} sent project name: {text}")
         # Clear the flag
@@ -1308,10 +1390,12 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Create the project
         result = await _create_project_logic(update.message.from_user, context, text)
         if result:
-            await update.message.reply_text(f'Project "{text}" created and selected! Use /list_tasks to add tasks.')
+            # Use the key that requires the project name parameter
+            await update.message.reply_text(_(user_id, 'project_created_selected', project_name=text))
         # Error handling done inside _create_project_logic
+        return # Handled as project name input
         
-    # Check if we're expecting a task name
+    # Check if we're expecting a task name (for creation via callback button)
     elif context.user_data.get(user_id, {}).get('expecting_task_name'):
         log.debug(f"User {user_id} sent task name: {text}")
         # Clear the flag
@@ -1320,19 +1404,24 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Create the task
         current_project_id = database.get_current_project(user_id)
         if not current_project_id:
-            await update.message.reply_text('Please select a project first with /list_projects.')
+            await update.message.reply_text(_(user_id, 'task_create_no_project'))
             return
             
         result = await _create_task_logic(update.message.from_user, context, text)
         if result:
-            project_name = database.get_project_name(current_project_id) or "Current Project"
-            await update.message.reply_text(f'Task "{text}" added to project "{project_name}"!')
+            project_name = database.get_project_name(current_project_id) or _(user_id, 'text_current_project')
+            # Use the key that requires both task and project name
+            await update.message.reply_text(_(user_id, 'task_created_selected', task_name=text, project_name=project_name))
             
             # Refresh the task list to show the new task
             fake_update = Update(0, message=update.message)
             fake_update._effective_user = update.message.from_user
             await list_tasks(fake_update, context)
         # Error handling done inside _create_task_logic
+        return # Handled as task name input
+        
+    # If the text wasn't a button and wasn't expected input, maybe log or ignore
+    log.debug(f"Received unhandled text message from user {user_id}: {text}")
 
 # --- Language Selection Command ---
 async def set_language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1349,5 +1438,18 @@ async def set_language_command(update: Update, context: ContextTypes.DEFAULT_TYP
     select_message = _(user_id, 'select_language') # Get translated prompt
     await update.message.reply_text(select_message, reply_markup=reply_markup)
 
-# --- Help Command --- (ensure it's the last command)
-# ... existing help_command ... 
+# --- Help Command --- (Restored)
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    log.info(f"User {user_id} requested /help")
+    help_text = _(user_id, 'help_text') # Get translated help text
+    try:
+        # Use MarkdownV2 for better formatting if desired, but requires escaping special chars
+        # The YAML uses Markdown, so we should be okay here, but be cautious.
+        await update.message.reply_text(help_text, parse_mode='Markdown') 
+    except Exception as e:
+         log.error(f"Failed to send help message: {e}")
+         try: # Fallback: send plain text
+             await update.message.reply_text(help_text)
+         except Exception as fb_e:
+             log.error(f"Failed to send fallback help message: {fb_e}") 
