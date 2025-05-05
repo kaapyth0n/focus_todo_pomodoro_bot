@@ -1,9 +1,11 @@
-from flask import Flask, render_template_string, jsonify, send_from_directory
+from flask import Flask, render_template, jsonify, send_from_directory, request, g
 import os
 from datetime import datetime, timezone
-from config import timer_states, DOMAIN_URL, FLASK_PORT
-import logging 
+from config import timer_states, DOMAIN_URL, FLASK_PORT, SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
+import logging
 import traceback # Import traceback for detailed error logging
+from flask_babel import Babel
+from i18n_utils import get_user_lang, _
 
 app = Flask(__name__)
 
@@ -13,6 +15,33 @@ log.setLevel(logging.WARNING) # Reduce werkzeug noise
 
 # Get logger for this module
 web_log = logging.getLogger(__name__)
+
+# Configure Flask-Babel for internationalization
+app.config['BABEL_DEFAULT_LOCALE'] = DEFAULT_LANGUAGE
+babel = Babel(app)
+
+# Define locale selector function
+def get_locale():
+    # Use the user_id from the route to determine language
+    user_id = getattr(g, 'user_id', None)
+    if user_id:
+        web_log.debug(f"Setting locale for user {user_id} to {get_user_lang(user_id)}")
+        return get_user_lang(user_id)
+    web_log.debug(f"Using default locale: {DEFAULT_LANGUAGE}")
+    return DEFAULT_LANGUAGE
+
+# Configure babel to use the locale selector
+babel.init_app(app, locale_selector=get_locale)
+
+# Create our own translation function to use i18n directly
+@app.context_processor
+def inject_utilities():
+    def translate(text):
+        user_id = getattr(g, 'user_id', None)
+        if user_id:
+            return _(user_id, text)
+        return text
+    return dict(_=translate)
 
 # --- Route to serve the audio file ---
 # Assuming the mp3 is in the root directory alongside bot.py
@@ -34,315 +63,15 @@ def serve_audio(filename):
 @app.route('/timer/<int:user_id>')
 def timer_page(user_id):
     web_log.debug(f"Request received for timer page for user {user_id}")
-    # Always render the main timer template. 
-    # Initial state will be fetched by JavaScript.
+    # Set user_id in Flask global g for babel localeselector
+    g.user_id = user_id
     try:
-        # Pass initial user_id to the template
-        return render_template_string("""
-            <html>
-                <head>
-                    <title>Pomodoro Timer</title>
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            margin-top: 50px;
-                            background-color: #f7f9fc;
-                            transition: background-color 0.5s ease;
-                        }
-                        .timer-container {
-                            max-width: 500px;
-                            margin: 0 auto;
-                            padding: 20px;
-                            border-radius: 10px;
-                            background-color: white;
-                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        }
-                        .timer {
-                            font-size: 60px;
-                            font-weight: bold;
-                            color: #333;
-                            margin: 30px 0;
-                        }
-                        .status {
-                            font-size: 18px;
-                            margin-bottom: 20px;
-                            transition: color 0.5s ease;
-                        }
-                        .status.loading { color: #999; }
-                        .status.running { color: #4CAF50; } /* Green */
-                        .status.paused { color: #FFC107; } /* Yellow */
-                        .status.stopped { color: #666; } /* Grey */
-                        .status.finished { color: #F44336; } /* Red */
-                        .status.error { color: #D32F2F; font-weight: bold; } /* Error color */
-
-                        /* Background color changes based on state */
-                        body.running-work { background-color: #e8f5e9; } /* Light Green for work */
-                        body.running-break { background-color: #e3f2fd; } /* Light Blue for break */
-                        body.paused { background-color: #fffde7; } /* Light Yellow */
-                        body.stopped { background-color: #f5f5f5; } /* Light Grey */
-                        body.finished { background-color: #ffebee; } /* Light Red */
-                        body.error { background-color: #fce4ec; } /* Light Pink */
-                        body.loading { background-color: #f7f9fc; } /* Default background */
-
-                        .audio-control { margin-top: 20px; }
-                        button { padding: 5px 10px; cursor: pointer; } 
-                    </style>
-                </head>
-                <body id="body-status" class="loading">
-                    <div class="timer-container">
-                        <h1 id="timer-title">Loading Timer...</h1>
-                        <div id="status" class="status loading">Loading...</div>
-                        <div id="countdown" class="timer">--:--</div>
-                        
-                        <!-- Audio Player -->
-                        <audio id="background-audio" loop preload="auto">
-                            <!-- Ensure the filename matches exactly -->
-                            <source src="/audio/clock-ticking-sound-effect-240503.mp3" type="audio/mpeg">
-                            Your browser does not support the audio element.
-                        </audio>
-                        <div class="audio-control">
-                            <button id="mute-button">🔇 Mute</button>
-                        </div>
-                        
-                    </div>
-                    <script>
-                        const userId = {{ user_id }};
-                        const statusElem = document.getElementById('status');
-                        const countdownElem = document.getElementById('countdown');
-                        const titleElem = document.getElementById('timer-title');
-                        const bodyElem = document.getElementById('body-status');
-                        const audioElement = document.getElementById('background-audio');
-                        const muteButton = document.getElementById('mute-button');
-
-                        let localRemainingSeconds = 0;
-                        let currentState = 'loading'; // loading, running, paused, stopped, finished, error
-                        let currentSessionType = 'work'; // Default to work
-                        let currentDuration = 25; // Default duration
-                        let localIntervalId = null;
-                        let syncIntervalId = null;
-                        const SYNC_INTERVAL_MS = 5000; // Sync with server every 5 seconds
-                        
-                        // Add console logging for debugging on the web page itself
-                        const originalLog = console.log;
-                        const originalDebug = console.debug;
-                        const originalError = console.error;
-                        const web_log = {
-                            log: function(...args) { originalLog.apply(console, ['[WEB]', ...args]); },
-                            debug: function(...args) { originalDebug.apply(console, ['[WEB DEBUG]', ...args]); },
-                            error: function(...args) { originalError.apply(console, ['[WEB ERROR]', ...args]); },
-                            info: function(...args) { originalLog.apply(console, ['[WEB INFO]', ...args]); } 
-                        };
-
-                        function formatTime(totalSeconds) {
-                            if (isNaN(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
-                            const minutes = Math.floor(totalSeconds / 60);
-                            const seconds = Math.floor(totalSeconds % 60);
-                            return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                        }
-
-                        // --- Audio Control --- 
-                        function playAudio() {
-                            if (audioElement.paused && !audioElement.muted) {
-                                web_log.debug('Attempting to play audio...');
-                                const playPromise = audioElement.play();
-                                if (playPromise !== undefined) {
-                                    playPromise.then(_ => {
-                                        web_log.debug('Audio playback started.');
-                                    }).catch(error => {
-                                        web_log.error('Audio playback failed:', error);
-                                        // Autoplay might be blocked, user may need interaction
-                                        // We could show a "Click to Play" button here if needed
-                                    });
-                                }
-                            } else {
-                                web_log.debug('Audio not playing (already playing, muted, or no element).');
-                            }
-                        }
-                        
-                        function pauseAudio() {
-                            if (!audioElement.paused) {
-                                web_log.debug('Pausing audio.');
-                                audioElement.pause();
-                                audioElement.currentTime = 0; // Reset to start
-                            }
-                        }
-                        
-                        muteButton.onclick = () => {
-                            audioElement.muted = !audioElement.muted;
-                            muteButton.textContent = audioElement.muted ? '🔈 Unmute' : '🔇 Mute';
-                            web_log.debug(`Audio muted state: ${audioElement.muted}`);
-                            // If unmuting while timer is running, try playing
-                            if (!audioElement.muted && currentState === 'running' && currentSessionType === 'work') {
-                                playAudio();
-                            }
-                        };
-                        // --- End Audio Control ---
-
-                        function updateDisplay() {
-                            // Update countdown text
-                            countdownElem.innerText = formatTime(localRemainingSeconds);
-                            
-                            // Update status text, title and body class
-                            let statusText = 'Unknown';
-                            let titleText = 'Timer';
-                            let bodyClass = currentState; // Base class is the state
-
-                            switch (currentState) {
-                                case 'loading': 
-                                    statusText = 'Loading...'; 
-                                    titleText = 'Loading Timer...';
-                                    break;
-                                case 'running': 
-                                    statusText = currentSessionType === 'break' ? 'Break Running' : 'Focus Running'; 
-                                    titleText = currentSessionType === 'break' ? 'Break Timer' : 'Focus Timer';
-                                    bodyClass = `running-${currentSessionType}`; // e.g., running-work or running-break
-                                    break;
-                                case 'paused': 
-                                    statusText = 'Timer Paused'; 
-                                    titleText = currentSessionType === 'break' ? 'Break Paused' : 'Focus Paused';
-                                    break;
-                                case 'stopped': 
-                                    statusText = 'Timer Stopped'; 
-                                    titleText = 'Timer Stopped';
-                                    break;
-                                case 'finished': 
-                                    statusText = "Time's up!"; 
-                                    titleText = currentSessionType === 'break' ? 'Break Finished' : 'Focus Finished';
-                                    break;
-                                case 'error': 
-                                    statusText = 'Error / Connection Issue'; 
-                                    titleText = 'Timer Error';
-                                    break;
-                            }
-                            statusElem.innerText = statusText;
-                            statusElem.className = `status ${currentState}`;
-                            titleElem.innerText = `${titleText} (${currentDuration} min)`;
-                            bodyElem.className = bodyClass; // Update body class for background color etc.
-                        }
-
-                        function stopLocalCountdown() {
-                            if (localIntervalId !== null) {
-                                clearInterval(localIntervalId);
-                                localIntervalId = null;
-                                web_log.debug('Local countdown stopped.');
-                            }
-                        }
-
-                        function startLocalCountdown() {
-                            stopLocalCountdown(); // Ensure no duplicate intervals
-                            web_log.debug(`Starting local countdown from ${localRemainingSeconds}s`);
-                            localIntervalId = setInterval(() => {
-                                if (currentState === 'running' && localRemainingSeconds > 0) {
-                                    localRemainingSeconds--;
-                                    updateDisplay();
-                                } else if (localRemainingSeconds <= 0) {
-                                    // Timer reached zero locally
-                                    web_log.debug('Local countdown reached zero.');
-                                    currentState = 'finished'; 
-                                    localRemainingSeconds = 0; // Ensure it's 0
-                                    stopLocalCountdown();
-                                    updateDisplay();
-                                    // Rely on next sync to confirm final state from server
-                                } else {
-                                     // State changed to non-running during interval
-                                     stopLocalCountdown();
-                                }
-                            }, 1000);
-                        }
-
-                        function updateState(newState, newRemainingSeconds, newDuration, newSessionType) {
-                            web_log.debug(`Updating state: ${newState}, session: ${newSessionType}, remaining: ${newRemainingSeconds}s, duration: ${newDuration}min`);
-                            const stateChanged = currentState !== newState;
-                            const typeChanged = currentSessionType !== newSessionType;
-                            const timeChangedSignificantly = Math.abs(localRemainingSeconds - newRemainingSeconds) > 5; // Allow for small drift
-
-                            currentState = newState;
-                            currentDuration = newDuration || 25; // Use fetched duration or default
-                            currentSessionType = newSessionType || 'work'; // Use fetched type or default
-
-                            // Update local time only if significantly different or state/type changed
-                            // or if the local countdown is not running (e.g., was paused)
-                            if (stateChanged || typeChanged || timeChangedSignificantly || localIntervalId === null) {
-                                localRemainingSeconds = newRemainingSeconds;
-                            }
-
-                            updateDisplay();
-
-                            // --- Trigger Audio Based on State --- 
-                            if (currentState === 'running' && currentSessionType === 'work') {
-                                playAudio();
-                            } else {
-                                pauseAudio(); // Pause for break, pause, stop, finish, error, loading
-                            }
-                            // --- End Trigger Audio ---
-
-                            if (currentState === 'running') {
-                                if (localIntervalId === null) { // Start local countdown if not already running
-                                    startLocalCountdown();
-                                }
-                            } else { // Paused, stopped, finished, error
-                                stopLocalCountdown();
-                                if (currentState === 'finished') {
-                                    localRemainingSeconds = 0; // Ensure display shows 00:00
-                                    updateDisplay();
-                                }
-                            }
-                        }
-
-                        async function syncWithServer() {
-                            web_log.debug(`Syncing with server for user ${userId}...`);
-                            try {
-                                const response = await fetch(`/api/timer_status/${userId}`);
-                                if (!response.ok) {
-                                    throw new Error(`API Error: ${response.status}`);
-                                }
-                                const data = await response.json();
-                                web_log.debug('Received data from server:', data);
-
-                                // Determine the effective state
-                                let effectiveState = data.state;
-                                if (data.state === 'stopped' && data.remaining_seconds <= 1) {
-                                     effectiveState = 'finished'; // Treat stopped near 0 as finished
-                                } else if (data.state === 'running' && data.remaining_seconds <= 0) {
-                                     effectiveState = 'finished'; // Treat running but 0 time as finished
-                                }
-
-                                updateState(effectiveState, data.remaining_seconds, data.duration, data.session_type);
-
-                            } catch (error) {
-                                web_log.error('Sync error:', error);
-                                // Avoid overwriting a finished state with error
-                                if (currentState !== 'finished') { 
-                                     updateState('error', localRemainingSeconds, currentDuration, currentSessionType); // Keep last known time/type on error
-                                }
-                            }
-                        }
-
-                        function initTimer() {
-                            web_log.info(`Initializing timer UI for user ${userId}`);
-                            // Initial sync
-                            syncWithServer(); 
-                            // Setup periodic sync
-                            if (syncIntervalId) clearInterval(syncIntervalId); // Clear previous interval if any
-                            syncIntervalId = setInterval(syncWithServer, SYNC_INTERVAL_MS);
-                            web_log.info(`Periodic sync started (${SYNC_INTERVAL_MS}ms).`);
-                        }
-                        
-                        
-                        // Start initialization
-                        initTimer();
-
-                    </script>
-                </body>
-            </html>
-        """, user_id=user_id)
-
+        # Pass the user_id to the template
+        return render_template('timer.html', user_id=user_id)
     except Exception as e:
         web_log.error(f"Error rendering timer page shell for user {user_id}: {e}\\n{traceback.format_exc()}")
         # Return a generic error page
-        return render_template_string("<html><body><h1>Server Error</h1><p>Sorry, an error occurred loading the timer page.</p></body></html>"), 500
+        return "<html><body><h1>Server Error</h1><p>Sorry, an error occurred loading the timer page.</p></body></html>", 500
 
 @app.route('/api/timer_status/<int:user_id>')
 def api_timer_status(user_id):
@@ -358,7 +87,7 @@ def api_timer_status(user_id):
                 'remaining_seconds': 0, 
                 'duration': 25, 
                 'session_type': 'work' # Default session type
-            }) 
+            })
 
         current_state = state_data.get('state', 'stopped') # Default to stopped if state key missing
         duration_minutes = state_data.get('duration', 25) 

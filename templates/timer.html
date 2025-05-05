@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ _('pomodoro_timer') }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+            background-color: #f7f9fc;
+            transition: background-color 0.5s ease;
+        }
+        .timer-container {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            border-radius: 10px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .timer {
+            font-size: 60px;
+            font-weight: bold;
+            color: #333;
+            margin: 30px 0;
+        }
+        .status {
+            font-size: 18px;
+            margin-bottom: 20px;
+            transition: color 0.5s ease;
+        }
+        .status.loading { color: #999; }
+        .status.running { color: #4CAF50; } /* Green */
+        .status.paused { color: #FFC107; } /* Yellow */
+        .status.stopped { color: #666; } /* Grey */
+        .status.finished { color: #F44336; } /* Red */
+        .status.error { color: #D32F2F; font-weight: bold; } /* Error color */
+
+        /* Background color changes based on state */
+        body.running-work { background-color: #e8f5e9; } /* Light Green for work */
+        body.running-break { background-color: #e3f2fd; } /* Light Blue for break */
+        body.paused { background-color: #fffde7; } /* Light Yellow */
+        body.stopped { background-color: #f5f5f5; } /* Light Grey */
+        body.finished { background-color: #ffebee; } /* Light Red */
+        body.error { background-color: #fce4ec; } /* Light Pink */
+        body.loading { background-color: #f7f9fc; } /* Default background */
+
+        .audio-control { margin-top: 20px; }
+        button { padding: 5px 10px; cursor: pointer; } 
+    </style>
+</head>
+<body id="body-status" class="loading">
+    <div class="timer-container">
+        <h1 id="timer-title">{{ _('loading_timer') }}</h1>
+        <div id="status" class="status loading">{{ _('loading') }}</div>
+        <div id="countdown" class="timer">--:--</div>
+        
+        <!-- Audio Player -->
+        <audio id="background-audio" loop preload="auto">
+            <!-- Ensure the filename matches exactly -->
+            <source src="/audio/clock-ticking-sound-effect-240503.mp3" type="audio/mpeg">
+            {{ _('browser_no_audio_support') }}
+        </audio>
+        <div class="audio-control">
+            <button id="mute-button">🔇 {{ _('mute') }}</button>
+        </div>
+        
+    </div>
+    <script>
+        const userId = {{ user_id }};
+        const statusElem = document.getElementById('status');
+        const countdownElem = document.getElementById('countdown');
+        const titleElem = document.getElementById('timer-title');
+        const bodyElem = document.getElementById('body-status');
+        const audioElement = document.getElementById('background-audio');
+        const muteButton = document.getElementById('mute-button');
+        
+        // Define hardcoded fallback translations in case server-side translation fails
+        const fallbackTranslations = {
+            loading: "Loading...",
+            loadingTimer: "Loading Timer...",
+            focusRunning: "Focus Running",
+            breakRunning: "Break Running",
+            focusTimer: "Focus Timer",
+            breakTimer: "Break Timer",
+            timerPaused: "Timer Paused",
+            focusPaused: "Focus Paused",
+            breakPaused: "Break Paused",
+            timerStopped: "Timer Stopped",
+            timesUp: "Time's up!",
+            focusFinished: "Focus Finished",
+            breakFinished: "Break Finished",
+            error: "Error / Connection Issue",
+            timerError: "Timer Error",
+            minute: "min",
+            mute: "Mute",
+            unmute: "Unmute"
+        };
+        
+        // Get translations from server with fallbacks
+        const translations = {
+            loading: "{{ _('loading')|default('Loading...', true) }}",
+            loadingTimer: "{{ _('loading_timer')|default('Loading Timer...', true) }}",
+            focusRunning: "{{ _('focus_running')|default('Focus Running', true) }}",
+            breakRunning: "{{ _('break_running')|default('Break Running', true) }}",
+            focusTimer: "{{ _('focus_timer')|default('Focus Timer', true) }}",
+            breakTimer: "{{ _('break_timer')|default('Break Timer', true) }}",
+            timerPaused: "{{ _('web_timer_paused')|default('Timer Paused', true) }}",
+            focusPaused: "{{ _('focus_paused')|default('Focus Paused', true) }}",
+            breakPaused: "{{ _('break_paused')|default('Break Paused', true) }}",
+            timerStopped: "{{ _('web_timer_stopped')|default('Timer Stopped', true) }}",
+            timesUp: "{{ _('web_times_up')|default('Time\'s up!', true) }}",
+            focusFinished: "{{ _('focus_finished')|default('Focus Finished', true) }}",
+            breakFinished: "{{ _('break_finished')|default('Break Finished', true) }}",
+            error: "{{ _('error_connection')|default('Error / Connection Issue', true) }}",
+            timerError: "{{ _('timer_error')|default('Timer Error', true) }}",
+            minute: "{{ _('minute')|default('min', true) }}",
+            mute: "{{ _('mute')|default('Mute', true) }}",
+            unmute: "{{ _('unmute')|default('Unmute', true) }}"
+        };
+        
+        // Check if translations are working, use fallbacks for any missing ones
+        for (const [key, value] of Object.entries(translations)) {
+            if (value.includes('_') && key in fallbackTranslations) {
+                translations[key] = fallbackTranslations[key];
+                console.warn(`Using fallback translation for ${key}`);
+            }
+        }
+
+        let localRemainingSeconds = 0;
+        let currentState = 'loading'; // loading, running, paused, stopped, finished, error
+        let currentSessionType = 'work'; // Default to work
+        let currentDuration = 25; // Default duration
+        let localIntervalId = null;
+        let syncIntervalId = null;
+        const SYNC_INTERVAL_MS = 5000; // Sync with server every 5 seconds
+        
+        // Add console logging for debugging on the web page itself
+        const originalLog = console.log;
+        const originalDebug = console.debug;
+        const originalError = console.error;
+        const web_log = {
+            log: function(...args) { originalLog.apply(console, ['[WEB]', ...args]); },
+            debug: function(...args) { originalDebug.apply(console, ['[WEB DEBUG]', ...args]); },
+            error: function(...args) { originalError.apply(console, ['[WEB ERROR]', ...args]); },
+            info: function(...args) { originalLog.apply(console, ['[WEB INFO]', ...args]); } 
+        };
+
+        function formatTime(totalSeconds) {
+            if (isNaN(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = Math.floor(totalSeconds % 60);
+            return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        // --- Audio Control --- 
+        function playAudio() {
+            if (audioElement.paused && !audioElement.muted) {
+                web_log.debug('Attempting to play audio...');
+                const playPromise = audioElement.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(_ => {
+                        web_log.debug('Audio playback started.');
+                    }).catch(error => {
+                        web_log.error('Audio playback failed:', error);
+                        // Autoplay might be blocked, user may need interaction
+                        // We could show a "Click to Play" button here if needed
+                    });
+                }
+            } else {
+                web_log.debug('Audio not playing (already playing, muted, or no element).');
+            }
+        }
+        
+        function pauseAudio() {
+            if (!audioElement.paused) {
+                web_log.debug('Pausing audio.');
+                audioElement.pause();
+                audioElement.currentTime = 0; // Reset to start
+            }
+        }
+        
+        muteButton.onclick = () => {
+            audioElement.muted = !audioElement.muted;
+            muteButton.textContent = audioElement.muted ? `🔈 ${translations.unmute}` : `🔇 ${translations.mute}`;
+            web_log.debug(`Audio muted state: ${audioElement.muted}`);
+            // If unmuting while timer is running, try playing
+            if (!audioElement.muted && currentState === 'running' && currentSessionType === 'work') {
+                playAudio();
+            }
+        };
+        // --- End Audio Control ---
+
+        function updateDisplay() {
+            // Update countdown text
+            countdownElem.innerText = formatTime(localRemainingSeconds);
+            
+            // Update status text, title and body class
+            let statusText = translations.loading;
+            let titleText = translations.loadingTimer;
+            let bodyClass = currentState; // Base class is the state
+
+            switch (currentState) {
+                case 'loading': 
+                    statusText = translations.loading; 
+                    titleText = translations.loadingTimer;
+                    break;
+                case 'running': 
+                    statusText = currentSessionType === 'break' ? translations.breakRunning : translations.focusRunning; 
+                    titleText = currentSessionType === 'break' ? translations.breakTimer : translations.focusTimer;
+                    bodyClass = `running-${currentSessionType}`; // e.g., running-work or running-break
+                    break;
+                case 'paused': 
+                    statusText = translations.timerPaused; 
+                    titleText = currentSessionType === 'break' ? translations.breakPaused : translations.focusPaused;
+                    break;
+                case 'stopped': 
+                    statusText = translations.timerStopped; 
+                    titleText = translations.timerStopped;
+                    break;
+                case 'finished': 
+                    statusText = translations.timesUp; 
+                    titleText = currentSessionType === 'break' ? translations.breakFinished : translations.focusFinished;
+                    break;
+                case 'error': 
+                    statusText = translations.error; 
+                    titleText = translations.timerError;
+                    break;
+            }
+            statusElem.innerText = statusText;
+            statusElem.className = `status ${currentState}`;
+            titleElem.innerText = `${titleText} (${currentDuration} ${translations.minute})`;
+            bodyElem.className = bodyClass; // Update body class for background color etc.
+        }
+
+        function stopLocalCountdown() {
+            if (localIntervalId !== null) {
+                clearInterval(localIntervalId);
+                localIntervalId = null;
+                web_log.debug('Local countdown stopped.');
+            }
+        }
+
+        function startLocalCountdown() {
+            stopLocalCountdown(); // Ensure no duplicate intervals
+            web_log.debug(`Starting local countdown from ${localRemainingSeconds}s`);
+            localIntervalId = setInterval(() => {
+                if (currentState === 'running' && localRemainingSeconds > 0) {
+                    localRemainingSeconds--;
+                    updateDisplay();
+                } else if (localRemainingSeconds <= 0) {
+                    // Timer reached zero locally
+                    web_log.debug('Local countdown reached zero.');
+                    currentState = 'finished'; 
+                    localRemainingSeconds = 0; // Ensure it's 0
+                    stopLocalCountdown();
+                    updateDisplay();
+                    // Rely on next sync to confirm final state from server
+                } else {
+                     // State changed to non-running during interval
+                     stopLocalCountdown();
+                }
+            }, 1000);
+        }
+
+        function updateState(newState, newRemainingSeconds, newDuration, newSessionType) {
+            web_log.debug(`Updating state: ${newState}, session: ${newSessionType}, remaining: ${newRemainingSeconds}s, duration: ${newDuration}min`);
+            const stateChanged = currentState !== newState;
+            const typeChanged = currentSessionType !== newSessionType;
+            const timeChangedSignificantly = Math.abs(localRemainingSeconds - newRemainingSeconds) > 5; // Allow for small drift
+
+            currentState = newState;
+            currentDuration = newDuration || 25; // Use fetched duration or default
+            currentSessionType = newSessionType || 'work'; // Use fetched type or default
+
+            // Update local time only if significantly different or state/type changed
+            // or if the local countdown is not running (e.g., was paused)
+            if (stateChanged || typeChanged || timeChangedSignificantly || localIntervalId === null) {
+                localRemainingSeconds = newRemainingSeconds;
+            }
+
+            updateDisplay();
+
+            // --- Trigger Audio Based on State --- 
+            if (currentState === 'running' && currentSessionType === 'work') {
+                playAudio();
+            } else {
+                pauseAudio(); // Pause for break, pause, stop, finish, error, loading
+            }
+            // --- End Trigger Audio ---
+
+            if (currentState === 'running') {
+                if (localIntervalId === null) { // Start local countdown if not already running
+                    startLocalCountdown();
+                }
+            } else { // Paused, stopped, finished, error
+                stopLocalCountdown();
+                if (currentState === 'finished') {
+                    localRemainingSeconds = 0; // Ensure display shows 00:00
+                    updateDisplay();
+                }
+            }
+        }
+
+        async function syncWithServer() {
+            web_log.debug(`Syncing with server for user ${userId}...`);
+            try {
+                const response = await fetch(`/api/timer_status/${userId}`);
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status}`);
+                }
+                const data = await response.json();
+                web_log.debug('Received data from server:', data);
+
+                // Determine the effective state
+                let effectiveState = data.state;
+                if (data.state === 'stopped' && data.remaining_seconds <= 1) {
+                     effectiveState = 'finished'; // Treat stopped near 0 as finished
+                } else if (data.state === 'running' && data.remaining_seconds <= 0) {
+                     effectiveState = 'finished'; // Treat running but 0 time as finished
+                }
+
+                updateState(effectiveState, data.remaining_seconds, data.duration, data.session_type);
+
+            } catch (error) {
+                web_log.error('Sync error:', error);
+                // Avoid overwriting a finished state with error
+                if (currentState !== 'finished') { 
+                     updateState('error', localRemainingSeconds, currentDuration, currentSessionType); // Keep last known time/type on error
+                }
+            }
+        }
+
+        function initTimer() {
+            web_log.info(`Initializing timer UI for user ${userId}`);
+            // Initial sync
+            syncWithServer(); 
+            // Setup periodic sync
+            if (syncIntervalId) clearInterval(syncIntervalId); // Clear previous interval if any
+            syncIntervalId = setInterval(syncWithServer, SYNC_INTERVAL_MS);
+            web_log.info(`Periodic sync started (${SYNC_INTERVAL_MS}ms).`);
+        }
+        
+        // Start initialization
+        initTimer();
+    </script>
+</body>
+</html> 
