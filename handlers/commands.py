@@ -1,9 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo, User
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, WebAppInfo, User, Message
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from telegram.helpers import escape_markdown # Import escape_markdown
 from telegram import constants # For ParseMode
 import database
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from config import timer_states, DOMAIN_URL, SUPPORTED_LANGUAGES
 import logging
 import sqlite3
@@ -23,6 +23,10 @@ NAME_TASK = 1
 
 # --- Conversation Handler States ---
 WAITING_PROJECT_NAME, WAITING_TASK_NAME = range(2)
+
+# --- Forwarded Message Handler ---
+FORWARDED_MESSAGE_PROJECT_SELECT = 1000  # Arbitrary state constant
+FORWARDED_MESSAGE_PROJECT_CREATE = 1001
 
 # --- Dynamic Reply Keyboard Generation ---
 def get_main_keyboard(user_id: int) -> ReplyKeyboardMarkup:
@@ -1409,6 +1413,243 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     # If the text wasn't a button and wasn't expected input, maybe log or ignore
     log.debug(f"Received unhandled text message from user {user_id}: {text}")
+
+# --- Forwarded Message Handler ---
+async def handle_forwarded_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log.info(f"handle_forwarded_message called. update: {update}")
+    message = getattr(update, 'message', None)
+    if not message:
+        log.warning("No message found, returning early")
+        return
+        
+    # Check for forward_date in api_kwargs or forward_origin
+    has_forward = False
+    if getattr(message, 'api_kwargs', {}).get('forward_date'):
+        has_forward = True
+    elif getattr(message, 'forward_origin', None):
+        has_forward = True
+    
+    if not has_forward:
+        log.warning("No forward_date or forward_origin found, returning early")
+        return
+        
+    user_id = message.from_user.id
+    log.info(f"Processing forwarded message for user {user_id}")
+    
+    # Store forwarded message data in user_data (temporary until project is chosen)
+    try:
+        context.user_data[user_id] = context.user_data.get(user_id, {})
+        context.user_data[user_id]['pending_forwarded_message'] = {
+            'message_text': message.text or message.caption or '',
+            'original_sender_name': (getattr(message, 'api_kwargs', {}).get('forward_sender_name') or 
+                                   (message.forward_from.full_name if getattr(message, 'forward_from', None) else '') or
+                                   (message.forward_origin.sender_user_name if getattr(message, 'forward_origin', None) else '')),
+            'forwarded_date': datetime.now().isoformat(),  # Use current time if forward_date not available
+            'tg_message_id': message.message_id,
+            'tg_chat_id': message.chat_id,
+        }
+        
+        # If forward_date is available in api_kwargs, use it
+        if getattr(message, 'api_kwargs', {}).get('forward_date'):
+            forward_timestamp = message.api_kwargs['forward_date']
+            # Convert timestamp to datetime
+            forward_date = datetime.fromtimestamp(forward_timestamp, tz=timezone.utc)
+            context.user_data[user_id]['pending_forwarded_message']['forwarded_date'] = forward_date.isoformat()
+        # If forward_origin is available, use its date
+        elif getattr(message, 'forward_origin', None) and getattr(message.forward_origin, 'date', None):
+            context.user_data[user_id]['pending_forwarded_message']['forwarded_date'] = message.forward_origin.date.isoformat()
+            
+        log.info(f"Stored forwarded message data: {context.user_data[user_id]['pending_forwarded_message']}")
+        
+        # Prompt for project selection
+        projects = database.get_projects(user_id, status=STATUS_ACTIVE)
+        log.info(f"Found {len(projects)} active projects for user {user_id}")
+        
+        keyboard = []
+        for project_id, project_name in projects:
+            keyboard.append([InlineKeyboardButton(project_name, callback_data=f"forwarded_select_project:{project_id}")])
+        
+        # Use the correct translation key that exists in the translation files
+        keyboard.append([InlineKeyboardButton(_(user_id, 'create_new_project_button'), callback_data="forwarded_create_new_project")])
+        # Add a cancel button
+        keyboard.append([InlineKeyboardButton(_(user_id, 'button_cancel'), callback_data="cancel_forwarded_message")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        log.info(f"Built keyboard with {len(keyboard)} rows")
+        
+        log.info(f"About to send message with translation key 'forwarded_select_project_prompt' to user {user_id}")
+        prompt_text = _(user_id, 'forwarded_select_project_prompt')
+        log.info(f"Prompt text resolved to: '{prompt_text}'")
+        
+        await message.reply_text(prompt_text, reply_markup=reply_markup)
+        log.info(f"Message sent successfully to user {user_id}")
+        
+    except Exception as e:
+        log.error(f"Error in handle_forwarded_message for user {user_id}: {e}", exc_info=True)
+        try:
+            await message.reply_text(_(user_id, 'error_unexpected'))
+        except Exception as send_error:
+            log.error(f"Failed to send error message: {send_error}")
+            
+    return FORWARDED_MESSAGE_PROJECT_SELECT
+
+# --- Callback handler for project selection (to be called from callbacks.py) ---
+async def handle_forwarded_project_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, project_id: int) -> int:
+    user_id = update.effective_user.id
+    pending = context.user_data.get(user_id, {}).get('pending_forwarded_message')
+    if not pending:
+        await update.callback_query.edit_message_text(_(user_id, 'forwarded_no_pending'))
+        return ConversationHandler.END
+    
+    try:
+        # Set this as the current project
+        database.set_current_project(user_id, project_id)
+        
+        # Save to forwarded_messages table
+        database.add_forwarded_message(
+            user_id=user_id,
+            project_id=project_id,
+            message_text=pending['message_text'],
+            original_sender_name=pending['original_sender_name'],
+            forwarded_date=pending['forwarded_date'],
+            tg_message_id=pending['tg_message_id'],
+            tg_chat_id=pending['tg_chat_id']
+        )
+        
+        # Also create a task with this message content
+        task_name = pending['message_text']
+        if len(task_name) > 100:  # Truncate if too long
+            task_name = task_name[:97] + "..."
+        
+        project_name = database.get_project_name(project_id) or _(user_id, 'text_unknown_project')
+        
+        # Add task to the project
+        task_id = database.add_task(project_id, task_name)
+        
+        # Set as current task
+        if task_id:
+            database.set_current_task(user_id, task_id)
+            
+        log.info(f"Created task '{task_name}' from forwarded message for user {user_id} in project {project_id}")
+        
+        # Send admin notification
+        await admin_handlers.send_admin_notification(
+            context,
+            f"Task created from forwarded message by {update.effective_user.first_name} ({user_id}) in project '{project_name}': '{task_name}'"
+        )
+        
+        # Clear the pending message data
+        if user_id in context.user_data and 'pending_forwarded_message' in context.user_data[user_id]:
+            del context.user_data[user_id]['pending_forwarded_message']
+        
+        # Notify the user
+        await update.callback_query.edit_message_text(
+            _(user_id, 'forwarded_saved_success_with_task', project_name=project_name)
+        )
+        
+        # Exit the conversation
+        return ConversationHandler.END
+        
+    except Exception as e:
+        log.error(f"Error saving forwarded message for user {user_id}: {e}", exc_info=True)
+        await update.callback_query.edit_message_text(_(user_id, 'error_unexpected'))
+        return ConversationHandler.END
+
+# --- Callback handler for 'Create New Project' in forwarded workflow ---
+async def handle_forwarded_create_new_project(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles the request to create a new project for a forwarded message."""
+    user_id = update.effective_user.id
+    log.info(f"User {user_id} chose to create a new project for forwarded message")
+    
+    try:
+        # Make sure we have a user_data dictionary
+        context.user_data[user_id] = context.user_data.get(user_id, {})
+        context.user_data[user_id]['expecting_forwarded_project_name'] = True
+        
+        # Store that we're expecting a project name for a forwarded message
+        # Add instructions about using /cancel
+        await update.callback_query.edit_message_text(_(user_id, 'forwarded_prompt_new_project_name_with_cancel'))
+        log.info(f"Prompting user {user_id} to enter new project name for forwarded message")
+        
+        # Return the appropriate conversation state
+        return FORWARDED_MESSAGE_PROJECT_CREATE
+    except Exception as e:
+        log.error(f"Error in handle_forwarded_create_new_project for user {user_id}: {e}", exc_info=True)
+        await update.callback_query.edit_message_text(_(user_id, 'error_unexpected'))
+        return ConversationHandler.END
+
+async def handle_forwarded_project_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles the project name entry in the forwarded message workflow."""
+    user_id = update.effective_user.id
+    message_text = update.message.text
+    
+    log.info(f"Received project name '{message_text}' from user {user_id} for forwarded message")
+    
+    try:
+        # Create the project
+        project_id = database.add_project(user_id, message_text)
+        if not project_id:
+            await update.message.reply_text(_(user_id, 'error_create_project'))
+            return ConversationHandler.END
+        
+        # Set as current project
+        database.set_current_project(user_id, project_id)
+        
+        # Get the pending forwarded message
+        pending = context.user_data.get(user_id, {}).get('pending_forwarded_message')
+        if not pending:
+            await update.message.reply_text(_(user_id, 'forwarded_no_pending'))
+            return ConversationHandler.END
+            
+        # Save to forwarded_messages table
+        database.add_forwarded_message(
+            user_id=user_id,
+            project_id=project_id,
+            message_text=pending['message_text'],
+            original_sender_name=pending['original_sender_name'],
+            forwarded_date=pending['forwarded_date'],
+            tg_message_id=pending['tg_message_id'],
+            tg_chat_id=pending['tg_chat_id']
+        )
+        
+        # Create a task with the forwarded message content
+        task_name = pending['message_text']
+        if len(task_name) > 100:  # Truncate if too long
+            task_name = task_name[:97] + "..."
+        
+        task_id = database.add_task(project_id, task_name)
+        
+        # Set as current task
+        if task_id:
+            database.set_current_task(user_id, task_id)
+        
+        log.info(f"Created task '{task_name}' from forwarded message for user {user_id} in new project {project_id}")
+        
+        # Send admin notification
+        await admin_handlers.send_admin_notification(
+            context,
+            f"New project '{message_text}' and task created from forwarded message by {update.message.from_user.first_name} ({user_id}): '{task_name}'"
+        )
+        
+        # Clear the pending data - make sure we remove ALL flags
+        if user_id in context.user_data:
+            if 'pending_forwarded_message' in context.user_data[user_id]:
+                del context.user_data[user_id]['pending_forwarded_message']
+            if 'expecting_forwarded_project_name' in context.user_data[user_id]:
+                del context.user_data[user_id]['expecting_forwarded_project_name']
+        
+        # Notify the user
+        await update.message.reply_text(
+            _(user_id, 'forwarded_saved_success_with_task', project_name=message_text)
+        )
+        
+        # End the conversation
+        return ConversationHandler.END
+        
+    except Exception as e:
+        log.error(f"Error creating project from forwarded message for user {user_id}: {e}", exc_info=True)
+        await update.message.reply_text(_(user_id, 'error_unexpected'))
+        return ConversationHandler.END
 
 # --- Language Selection Command ---
 async def set_language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

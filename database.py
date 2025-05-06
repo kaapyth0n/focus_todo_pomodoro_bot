@@ -143,6 +143,22 @@ def create_database():
         # --- Bot Settings Table --- 
         _create_bot_settings_table(conn)
         
+        # --- Forwarded Messages Table ---
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS forwarded_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                project_id INTEGER,
+                message_text TEXT,
+                original_sender_name TEXT,
+                forwarded_date TEXT,
+                tg_message_id INTEGER,
+                tg_chat_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE SET NULL
+            )
+        ''')
+        
         log.info("Database tables ensured.")
 
         # --- Schema Migrations ---
@@ -1233,6 +1249,46 @@ def get_task_status(task_id: int) -> int | None:
     except sqlite3.Error as e:
         log.error(f"Database error getting status for task {task_id}: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+# --- Forwarded Messages Management ---
+def add_forwarded_message(user_id, project_id, message_text, original_sender_name, forwarded_date, tg_message_id, tg_chat_id):
+    """Inserts a forwarded message into the database."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO forwarded_messages (user_id, project_id, message_text, original_sender_name, forwarded_date, tg_message_id, tg_chat_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, project_id, message_text, original_sender_name, forwarded_date, tg_message_id, tg_chat_id))
+        conn.commit()
+        log.info(f"Added forwarded message for user {user_id} to project {project_id}.")
+        return cursor.lastrowid
+    except sqlite3.Error as e:
+        log.error(f"Database error adding forwarded message for user {user_id}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_forwarded_messages_by_project(project_id):
+    """Retrieves all forwarded messages for a given project."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, user_id, message_text, original_sender_name, forwarded_date, tg_message_id, tg_chat_id
+            FROM forwarded_messages WHERE project_id = ?
+            ORDER BY forwarded_date DESC
+        ''', (project_id,))
+        return cursor.fetchall()
+    except sqlite3.Error as e:
+        log.error(f"Database error retrieving forwarded messages for project {project_id}: {e}")
+        return []
     finally:
         if conn:
             conn.close()

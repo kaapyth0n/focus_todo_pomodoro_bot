@@ -11,6 +11,7 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Mark projects and tasks as "done" (archive) to hide them from main lists.
     - View active or archived projects/tasks.
     - Delete projects or tasks (with confirmation).
+    - Forward messages to create tasks in existing or new projects.
 - **Pomodoro Timer:**
     - Start customizable work timers (default 25 mins) for selected tasks.
     - Start short (5 min) or long (15 min) break timers (prompted after work, or via button).
@@ -27,6 +28,7 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Inline buttons for list selection, navigation, and actions.
     - Persistent selection of the current project and task.
     - Multi-language support (English, German, Russian) for both bot and web interface.
+    - Directly create tasks from forwarded messages.
 - **Admin Features:**
     - Notifications for new user registrations and project/task creations.
     - Toggle admin notifications on/off.
@@ -112,6 +114,7 @@ Interact with the bot in Telegram using commands or the reply keyboard.
 -   `/list_tasks`: Show active tasks in the current project with buttons to select, mark done, or view archived tasks.
 -   `/select_task \"Task Name\"`: Select an active task by name within the current project.
 -   `/delete_task`: Show a list of tasks in the current project to delete (asks for confirmation).
+-   **Forward a message** to the bot to create a task from that message in an existing or new project.
 
 **Timer Control:**
 -   `/start_timer [minutes]`: Start a work timer for the selected task (default 25 min, e.g., `/start_timer 45`).

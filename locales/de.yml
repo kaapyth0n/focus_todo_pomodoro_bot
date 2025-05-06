@@ -147,6 +147,7 @@ de:
       `/list_tasks` - Aufgaben im aktuellen Projekt auflisten und auswählen (➡️ zeigt aktuelle).
       `/select_task "Aufgabenname"` - Aufgabe nach Namen auswählen.
       `/delete_task` - Aufgabe und ihre Daten löschen.
+      *Leite eine Nachricht* an den Bot weiter, um schnell eine Aufgabe aus dieser Nachricht zu erstellen.
 
     *Timer-Steuerung:*
       `/start_timer [Minuten]` - Pomodoro starten (Standard 25 Min.). Bsp.: `/start_timer 45`
@@ -256,4 +257,12 @@ de:
   minute: "Min"
   mute: "Stummschalten"
   unmute: "Ton einschalten"
-  browser_no_audio_support: "Dein Browser unterstützt das Audio-Element nicht." 
+  browser_no_audio_support: "Dein Browser unterstützt das Audio-Element nicht."
+  # Forwarded Message Workflow
+  forwarded_select_project_prompt: "Ich habe deine weitergeleitete Nachricht erhalten. Zu welchem Projekt soll ich sie hinzufügen?"
+  forwarded_prompt_new_project_name_with_cancel: "Bitte gib einen Namen für das neue Projekt für diese weitergeleitete Nachricht ein (oder sende /cancel zum Abbrechen)."
+  forwarded_no_pending: "Keine weitergeleitete Nachricht gefunden. Bitte leite zuerst eine Nachricht weiter."
+  forwarded_saved_success_with_task: "Super! Ich habe die weitergeleitete Nachricht zum Projekt '%{project_name}' gespeichert und eine Aufgabe daraus erstellt."
+  create_new_project_button: "➕ Neues Projekt erstellen"
+  forwarded_workflow_cancelled: "Verarbeitung der weitergeleiteten Nachricht abgebrochen."
+  error_create_project: "Beim Erstellen des Projekts ist ein Fehler aufgetreten." 

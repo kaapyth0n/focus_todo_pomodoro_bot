@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 import database
 from database import STATUS_ACTIVE, STATUS_DONE # Import status constants
 from config import timer_states # timer_states might be needed if we check active timers here
@@ -187,6 +187,45 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 log.error(f"Unexpected error handling select_task callback for user {user_id}: {e}\n{traceback.format_exc()}")
                 await query.edit_message_text(text=_(user_id, 'error_selecting_task_unexpected'))
+
+        elif data.startswith("forwarded_select_project:"):
+            try:
+                project_id = int(data.split(":")[1])
+                # Call the handler but capture its return value for conversation state
+                conversation_state = await cmd_handlers.handle_forwarded_project_selection(update, context, project_id)
+                # Return the conversation state to the ConversationHandler
+                return conversation_state
+            except (IndexError, ValueError):
+                log.warning(f"Error parsing forwarded_select_project callback data '{data}' for user {user_id}")
+                await query.edit_message_text(_(user_id, 'error_processing_selection'))
+                return ConversationHandler.END
+            except Exception as e:
+                log.error(f"Unexpected error handling forwarded_select_project callback for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text(_(user_id, 'error_selecting_project_unexpected'))
+                return ConversationHandler.END
+        elif data == "forwarded_create_new_project":
+            try:
+                log.info(f"User {user_id} clicked 'Create New Project' for forwarded message")
+                # Call the handler but capture its return value for conversation state
+                conversation_state = await cmd_handlers.handle_forwarded_create_new_project(update, context)
+                # Return the conversation state to the ConversationHandler
+                return conversation_state
+            except Exception as e:
+                log.error(f"Unexpected error handling forwarded_create_new_project callback for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text(_(user_id, 'error_unexpected'))
+                # Return ConversationHandler.END on error
+                return ConversationHandler.END
+                
+        elif data == "cancel_forwarded_message":
+            log.info(f"User {user_id} cancelled the forwarded message workflow")
+            # Clear any pending data
+            if user_id in context.user_data and 'pending_forwarded_message' in context.user_data[user_id]:
+                del context.user_data[user_id]['pending_forwarded_message']
+            if user_id in context.user_data and 'expecting_forwarded_project_name' in context.user_data[user_id]:
+                del context.user_data[user_id]['expecting_forwarded_project_name']
+                
+            await query.edit_message_text(_(user_id, 'forwarded_workflow_cancelled'))
+            return ConversationHandler.END
 
         # --- Deletion Callbacks ---
         elif data == "cancel_delete":

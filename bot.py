@@ -17,6 +17,10 @@ from handlers import google_auth as google_auth_handlers # Import google auth ha
 from handlers import admin as admin_handlers # Import admin handlers
 # Import Flask runner
 from web_app import run_flask
+from handlers.commands import (
+    FORWARDED_MESSAGE_PROJECT_SELECT, FORWARDED_MESSAGE_PROJECT_CREATE,
+    handle_forwarded_message, handle_forwarded_project_name
+)
 
 # Shared state (consider moving to a better place later, e.g., context.bot_data or a dedicated module)
 # These need to be accessible by handlers and potentially the web_app (via import)
@@ -623,6 +627,25 @@ def main():
         fallbacks=[CommandHandler('cancel', cmd_handlers.cancel_creation)],
     )
     application.add_handler(create_task_conv_handler)
+
+    # --- Forwarded Message Conversation Handler ---
+    forwarded_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.FORWARDED, cmd_handlers.handle_forwarded_message)],
+        states={
+            cmd_handlers.FORWARDED_MESSAGE_PROJECT_SELECT: [
+                CallbackQueryHandler(cb_handlers.button_callback, pattern="^forwarded_select_project:"),
+                CallbackQueryHandler(cb_handlers.button_callback, pattern="^forwarded_create_new_project$")
+            ],
+            cmd_handlers.FORWARDED_MESSAGE_PROJECT_CREATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_handlers.handle_forwarded_project_name)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cmd_handlers.cancel_creation)],
+        name="forwarded_message_conversation",
+        persistent=False,
+        allow_reentry=True
+    )
+    application.add_handler(forwarded_conv_handler)
 
     # Handle message creation from button callbacks and general text messages
     # This handler now maps translated button text to actions

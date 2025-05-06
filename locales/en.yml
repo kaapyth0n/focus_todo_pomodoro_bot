@@ -147,6 +147,7 @@ en:
       `/list_tasks` - List and select tasks in the current project (➡️ indicates current).
       `/select_task "Task Name"` - Select a task by name.
       `/delete_task` - Delete a task and its data.
+      *Forward any message* to the bot to quickly create a task from that message content.
 
     *Timer Control:*
       `/start_timer [minutes]` - Start Pomodoro (default 25 min). E.g., `/start_timer 45`
@@ -256,4 +257,14 @@ en:
   minute: "min"
   mute: "Mute"
   unmute: "Unmute"
-  browser_no_audio_support: "Your browser does not support the audio element." 
+  browser_no_audio_support: "Your browser does not support the audio element."
+  forwarded_select_project_prompt: "I received your forwarded message. Which project should I add it to?"
+  create_new_project_button: "➕ Create New Project"
+  forwarded_prompt_new_project_name: "What name would you like for the new project? Type the name now."
+  forwarded_prompt_new_project_name_with_cancel: "Please enter a new project name for this forwarded message (or send /cancel to abort)."
+  forwarded_saved_success: "Forwarded message saved to project successfully!"
+  forwarded_saved_success_with_task: "Great! I've saved the forwarded message to project '%{project_name}' and created a task from it."
+  forwarded_no_pending: "No pending forwarded message found. Please forward a message first."
+  forwarded_workflow_cancelled: "Forwarded message processing cancelled."
+  button_cancel: "❌ Cancel"
+  error_create_project: "An error occurred creating the project." 
