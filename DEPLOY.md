@@ -40,17 +40,14 @@ chown pomodoro:pomodoro /opt/focus_pomodoro
 ### 2. Application Deployment
 
 ```bash
-# Clone or copy application files to server
-# (From development machine)
-tar czf /tmp/focus_pomodoro.tar.gz --exclude=venv --exclude=__pycache__ --exclude=.git .
-scp /tmp/focus_pomodoro.tar.gz root@217.154.83.34:/tmp/
+# Clone the application repository to the server (first-time setup)
+git clone https://github.com/kaapyth0n/focus_todo_pomodoro_bot /opt/focus_pomodoro
+chown -R pomodoro:pomodoro /opt/focus_pomodoro
+```
 
-# (On server)
-cd /opt/focus_pomodoro
-tar xzf /tmp/focus_pomodoro.tar.gz
-chown -R pomodoro:pomodoro .
+# If updating an existing deployment, see the 'Code Updates' section below for the recommended workflow.
 
-# Copy database and sound files if needed
+# Copy database and sound files if needed (first-time setup only)
 scp focus_pomodoro.db clock-ticking-sound-effect-240503.mp3 root@217.154.83.34:/opt/focus_pomodoro/
 chown pomodoro:pomodoro /opt/focus_pomodoro/focus_pomodoro.db /opt/focus_pomodoro/clock-ticking-sound-effect-240503.mp3
 ```
@@ -198,39 +195,35 @@ scp /opt/focus_pomodoro/focus_pomodoro.db backup_server:/path/to/backup/
 
 ### Code Updates
 
-To update the application code:
+To update the application code (recommended workflow):
 
 ```bash
 # Stop the service
 systemctl stop focus_pomodoro
 
-# Backup the current application
-cp -r /opt/focus_pomodoro /opt/focus_pomodoro_backup_$(date +%Y%m%d)
+# Backup the current application and database
+cp -r /opt/focus_pomodoro /opt/focus_pomodoro_backup_$(date +%Y%m%d_%H%M%S)
 
-# Update code (similar to deployment steps)
+# Update code using git
 cd /opt/focus_pomodoro
-
-# Option 1: Using git (if repository is cloned)
 git pull origin main
 
-# Option 2: Copy new files from development machine
-# (On development machine)
-tar czf /tmp/focus_pomodoro.tar.gz --exclude=venv --exclude=__pycache__ --exclude=.git .
-scp /tmp/focus_pomodoro.tar.gz root@217.154.83.34:/tmp/
-
-# (On server)
-cd /opt/focus_pomodoro
-tar xzf /tmp/focus_pomodoro.tar.gz
-chown -R pomodoro:pomodoro .
+# Ensure correct permissions (if needed)
+chown -R pomodoro:pomodoro /opt/focus_pomodoro
 
 # Update dependencies if needed
 source venv/bin/activate
 pip install -r requirements.txt
+pip install "python-telegram-bot[job-queue]" flask
 deactivate
 
 # Restart the service
 systemctl start focus_pomodoro
 ```
+
+> **Note:**
+> - The `.env` file and `focus_pomodoro.db` are preserved during git-based updates.
+> - Only use the tar/scp method if you need to deploy from a machine that cannot push to the repository, or for initial setup.
 
 ### Log Management
 
