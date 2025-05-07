@@ -1443,7 +1443,7 @@ async def handle_forwarded_message(update: Update, context: ContextTypes.DEFAULT
             'message_text': message.text or message.caption or '',
             'original_sender_name': (getattr(message, 'api_kwargs', {}).get('forward_sender_name') or 
                                    (message.forward_from.full_name if getattr(message, 'forward_from', None) else '') or
-                                   (message.forward_origin.sender_user_name if getattr(message, 'forward_origin', None) else '')),
+                                   (message.forward_origin.sender_user.full_name if getattr(message, 'forward_origin', None) and hasattr(message.forward_origin, 'sender_user') else '')),
             'forwarded_date': datetime.now().isoformat(),  # Use current time if forward_date not available
             'tg_message_id': message.message_id,
             'tg_chat_id': message.chat_id,
