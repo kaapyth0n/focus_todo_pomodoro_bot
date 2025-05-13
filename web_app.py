@@ -169,6 +169,53 @@ def api_timer_status(user_id):
         # Return a JSON error response
         return jsonify({'state': 'error', 'message': 'Internal server error processing timer status'}), 500
 
+@app.route('/oauth2callback')
+def oauth2callback():
+    """Handle the OAuth2 callback from Google."""
+    web_log.debug(f"Request received for OAuth2 callback: {request.args}")
+    try:
+        # Get the code from the query parameters
+        code = request.args.get('code')
+        if not code:
+            web_log.error("OAuth2 callback received without code parameter")
+            return "<html><body><h1>Error</h1><p>No authorization code found in the request.</p></body></html>", 400
+
+        # Display a page with the code and instructions
+        return f"""
+        <html>
+        <head>
+            <title>Authorization Successful</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .code-box {{ background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+                .code {{ font-family: monospace; font-size: 14px; word-break: break-all; }}
+                .instructions {{ line-height: 1.5; }}
+            </style>
+        </head>
+        <body>
+            <h1>Authorization Successful</h1>
+            <div class="instructions">
+                <p>Please copy the following authorization code and paste it back into your Telegram chat with the bot:</p>
+            </div>
+            <div class="code-box">
+                <div class="code">{code}</div>
+            </div>
+            <div class="instructions">
+                <p>After copying the code:</p>
+                <ol>
+                    <li>Go back to your Telegram chat with Focus Pomodoro Bot</li>
+                    <li>Paste the code into the chat</li>
+                    <li>The bot will complete the connection to your Google account</li>
+                </ol>
+                <p>You can close this window after copying the code.</p>
+            </div>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        web_log.error(f"Error in OAuth2 callback: {e}\\n{traceback.format_exc()}")
+        return "<html><body><h1>Server Error</h1><p>An error occurred processing the authorization.</p></body></html>", 500
+
 def run_flask():
     # FLASK_PORT is now imported from config
     port = FLASK_PORT 

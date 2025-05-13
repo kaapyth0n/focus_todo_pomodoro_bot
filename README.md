@@ -59,7 +59,7 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Go to the [Google Cloud Console](https://console.cloud.google.com/).
     - Create a new project (or use an existing one).
     - Enable the "Google Sheets API".
-    - Create OAuth 2.0 Client ID credentials. When asked for "Application type", select "Desktop app" if you are using the `urn:ietf:wg:oauth:2.0:oob` redirect URI (recommended for simplicity, see below). If you plan to set up a web server redirect, you would choose "Web application".
+    - Create OAuth 2.0 Client ID credentials. When asked for "Application type", select "Web application".
     - Download the credentials JSON file.
         - **Important:** The file downloaded from Google is often named `client_secret_XXXX.json`. You **must** rename this file to exactly `credentials.json` and place it in the root directory of this project.
     - **Configure OAuth Consent Screen:**
@@ -78,9 +78,13 @@ A Telegram bot that helps you manage projects and tasks, track your work session
         - Go back to "APIs & Services" -> "Credentials".
         - Click on the name of your OAuth 2.0 Client ID.
         - Under "Authorized redirect URIs", click "ADD URI".
-        - Add `urn:ietf:wg:oauth:2.0:oob`. This is the recommended redirect URI for the copy/paste authentication flow used by the bot.
-        - (Optional: If you decide to implement a web server callback later instead of `oob`, you would add `YOUR_DOMAIN_URL/oauth2callback` here and update `GOOGLE_REDIRECT_URI` in `config.py`).
+        - Add `YOUR_DOMAIN_URL/oauth2callback` (e.g., `https://your-domain-or-ngrok-url.com/oauth2callback`). This is the URL that Google will redirect to after user authorization.
         - Save the changes.
+    - **Note about the OAuth flow:**
+        - When a user runs the `/connect_google` command, they'll be directed to a Google authorization page
+        - After authorizing the app, Google will redirect them to your server's `/oauth2callback` endpoint
+        - The page will display the authorization code for the user to copy
+        - The user must paste this code back into the Telegram chat to complete the connection
 
 4.  Create a `.env` file from the example:
     ```bash
@@ -90,15 +94,18 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     ```plaintext
     # Mandatory
     BOT_TOKEN=your_telegram_bot_token_here
-    DOMAIN_URL=https://your-domain-or-ngrok-url.com # For web timer link
+    DOMAIN_URL=https://your-domain-or-ngrok-url.com # For web timer link and OAuth redirects
     ADMIN_USER_ID=your_telegram_user_id # Your numeric Telegram ID for admin features
+    GOOGLE_CLIENT_ID=your_google_client_id_here
+    GOOGLE_CLIENT_SECRET=your_google_client_secret_here
 
     # Optional (defaults are usually fine)
     FLASK_PORT=5002
     ```
     - **`BOT_TOKEN`**: Your Telegram bot token from BotFather.
-    - **`DOMAIN_URL`**: The publicly accessible URL where the Flask web app (for the timer view) will run. For local development, use your `ngrok` HTTPS URL (e.g., `https://xxxx-xxxx-xxxx.ngrok-free.app`).
+    - **`DOMAIN_URL`**: The publicly accessible URL where the Flask web app will run. For local development, use your `ngrok` HTTPS URL (e.g., `https://xxxx-xxxx-xxxx.ngrok-free.app`).
     - **`ADMIN_USER_ID`**: Your *numeric* Telegram User ID. You can get this from bots like `@userinfobot`. This user will receive notifications.
+    - **`GOOGLE_CLIENT_ID`** and **`GOOGLE_CLIENT_SECRET`**: From your downloaded credentials file.
     - **`FLASK_PORT`**: The local port the Flask app will listen on (must match ngrok if used).
 
 ### Running the Bot

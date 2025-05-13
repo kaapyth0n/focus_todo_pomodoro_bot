@@ -22,8 +22,11 @@ print(f"Configuration loaded: DOMAIN_URL={DOMAIN_URL}, FLASK_PORT={FLASK_PORT}")
 # --- Google API Configuration ---
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-# Use 'urn:ietf:wg:oauth:2.0:oob' for the code copy/paste flow if no web server redirect is set up
-GOOGLE_REDIRECT_URI = f"{DOMAIN_URL}/oauth2callback" # Matches the one in web_app.py and Google Console
+# Check if GOOGLE_REDIRECT_URI is explicitly set in .env, otherwise construct it
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
+if not GOOGLE_REDIRECT_URI:
+    # Use 'urn:ietf:wg:oauth:2.0:oob' for the code copy/paste flow if no web server redirect is set up
+    GOOGLE_REDIRECT_URI = f"{DOMAIN_URL}/oauth2callback" # Matches the one in web_app.py and Google Console
 GOOGLE_SCOPES = ['https://www.googleapis.com/auth/spreadsheets'] # Scope for accessing Sheets
 
 if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
