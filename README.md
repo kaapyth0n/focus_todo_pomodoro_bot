@@ -59,8 +59,29 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Go to the [Google Cloud Console](https://console.cloud.google.com/).
     - Create a new project (or use an existing one).
     - Enable the "Google Sheets API".
-    - Create OAuth 2.0 Client ID credentials (Type: Desktop App).
-    - Download the credentials JSON file and save it as `credentials.json` in the root directory of this project.
+    - Create OAuth 2.0 Client ID credentials. When asked for "Application type", select "Desktop app" if you are using the `urn:ietf:wg:oauth:2.0:oob` redirect URI (recommended for simplicity, see below). If you plan to set up a web server redirect, you would choose "Web application".
+    - Download the credentials JSON file.
+        - **Important:** The file downloaded from Google is often named `client_secret_XXXX.json`. You **must** rename this file to exactly `credentials.json` and place it in the root directory of this project.
+    - **Configure OAuth Consent Screen:**
+        - In the Google Cloud Console, navigate to "APIs & Services" -> "OAuth consent screen".
+        - If you haven't configured it before, you'll need to choose a User Type (e.g., "External").
+        - Fill in the required app information:
+            - App name (e.g., "Focus Pomodoro Bot")
+            - User support email
+            - Developer contact information
+        - **Authorized domains:** Add the domain part of your `DOMAIN_URL` (e.g., if `DOMAIN_URL` is `https://sub.example.com`, add `example.com` or `sub.example.com`). If using `ngrok`, add your `ngrok.io` domain (e.g. `your-hash.ngrok-free.app`).
+        - **Application Home Page link:** Set this to your `DOMAIN_URL` (e.g., `https://your-domain-or-ngrok-url.com/`). The bot serves a basic home page here.
+        - **Application Privacy Policy link:** Set this to `YOUR_DOMAIN_URL/privacy` (e.g., `https://your-domain-or-ngrok-url.com/privacy`). The bot serves a template privacy policy here. Review and update `templates/privacy_policy.html` to match your specifics.
+        - **Application Terms of Service link:** Set this to `YOUR_DOMAIN_URL/terms` (e.g., `https://your-domain-or-ngrok-url.com/terms`). The bot serves template terms of service here. Review and update `templates/terms_of_service.html` to match your specifics.
+        - Save the consent screen settings.
+    - **Configure Redirect URIs for your OAuth Client ID:**
+        - Go back to "APIs & Services" -> "Credentials".
+        - Click on the name of your OAuth 2.0 Client ID.
+        - Under "Authorized redirect URIs", click "ADD URI".
+        - Add `urn:ietf:wg:oauth:2.0:oob`. This is the recommended redirect URI for the copy/paste authentication flow used by the bot.
+        - (Optional: If you decide to implement a web server callback later instead of `oob`, you would add `YOUR_DOMAIN_URL/oauth2callback` here and update `GOOGLE_REDIRECT_URI` in `config.py`).
+        - Save the changes.
+
 4.  Create a `.env` file from the example:
     ```bash
     cp .env.example .env

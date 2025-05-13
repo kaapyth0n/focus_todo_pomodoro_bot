@@ -40,8 +40,41 @@ def inject_utilities():
         user_id = getattr(g, 'user_id', None)
         if user_id:
             return _(user_id, text)
-        return text
+        return text # Return original text if no user_id (e.g. for static pages)
     return dict(_=translate)
+
+# --- Static Information Pages ---
+@app.route('/')
+def home_page():
+    web_log.debug(f"Request received for home page")
+    # Set g.user_id to None or a default if you want translated headers/footers common to all pages
+    # For now, these pages are mostly static English content.
+    g.user_id = None 
+    try:
+        return render_template('home.html')
+    except Exception as e:
+        web_log.error(f"Error rendering home page: {e}\\n{traceback.format_exc()}")
+        return "<html><body><h1>Server Error</h1><p>Could not load home page.</p></body></html>", 500
+
+@app.route('/privacy')
+def privacy_policy_page():
+    web_log.debug(f"Request received for privacy policy page")
+    g.user_id = None 
+    try:
+        return render_template('privacy_policy.html')
+    except Exception as e:
+        web_log.error(f"Error rendering privacy policy page: {e}\\n{traceback.format_exc()}")
+        return "<html><body><h1>Server Error</h1><p>Could not load privacy policy.</p></body></html>", 500
+
+@app.route('/terms')
+def terms_of_service_page():
+    web_log.debug(f"Request received for terms of service page")
+    g.user_id = None 
+    try:
+        return render_template('terms_of_service.html')
+    except Exception as e:
+        web_log.error(f"Error rendering terms of service page: {e}\\n{traceback.format_exc()}")
+        return "<html><body><h1>Server Error</h1><p>Could not load terms of service.</p></body></html>", 500
 
 # --- Route to serve the audio file ---
 # Assuming the mp3 is in the root directory alongside bot.py

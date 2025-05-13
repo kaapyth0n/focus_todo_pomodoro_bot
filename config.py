@@ -43,4 +43,11 @@ SUPPORTED_LANGUAGES = ['en', 'de', 'ru']
 DEFAULT_LANGUAGE = 'en'
 # --- End i18n Settings ---
 
+# --- Application Page URLs (for Google OAuth Consent Screen) ---
+APP_HOME_PAGE_URL = f"{DOMAIN_URL}/"
+APP_PRIVACY_POLICY_URL = f"{DOMAIN_URL}/privacy"
+APP_TERMS_OF_SERVICE_URL = f"{DOMAIN_URL}/terms"
+
+print(f"App Info Pages: Home='{APP_HOME_PAGE_URL}', Privacy='{APP_PRIVACY_POLICY_URL}', Terms='{APP_TERMS_OF_SERVICE_URL}'")
+
 # You might want to add more specific checks for other variables if they are critical 
