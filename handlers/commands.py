@@ -746,10 +746,12 @@ async def pause_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state_data['job'] = None 
             log.debug(f"Removed scheduled job for paused timer (user {user_id}).")
             
+        # Format accumulated_time to two decimal places for user-facing message
+        accumulated_time_formatted = f"{state_data.get('accumulated_time', 0):.2f}"
         await update.message.reply_text(
             _(user_id, 'timer_paused', 
               timer_type=timer_type.capitalize(), 
-              accumulated_time=state_data.get("accumulated_time", 0))
+              accumulated_time=accumulated_time_formatted)
         )
         log.info(f"Paused {timer_type} for user {user_id}.")
 
@@ -801,10 +803,12 @@ async def resume_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state_data['start_time'] = datetime.now() 
         state_data['job'] = job
         
+        # Format remaining_time to two decimal places for user-facing message
+        remaining_time_formatted = f"{remaining_time_minutes:.2f}"
         await update.message.reply_text(
             _(user_id, 'timer_resumed', 
               timer_type=session_type.capitalize(), 
-              remaining_time=remaining_time_minutes)
+              remaining_time=remaining_time_formatted)
         )
         log.info(f"Resumed {session_type.capitalize()} timer for user {user_id}.")
 
