@@ -33,6 +33,11 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Notifications for new user registrations and project/task creations.
     - Toggle admin notifications on/off.
     - View basic bot usage statistics.
+- **Jira Cloud Integration:**
+    - Connect your Jira Cloud account via OAuth.
+    - Import open Jira issues assigned to you as bot tasks (with project auto-creation).
+    - When you stop a timer for a Jira-linked task, the bot will prompt you to log the session as work in Jira.
+    - Worklog is added to the corresponding Jira issue with the time spent.
 
 ## Setup Instructions
 
@@ -122,6 +127,33 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     ```
     The bot will automatically check and create/update the `focus_pomodoro.db` SQLite database file on startup.
 
+### Jira Cloud Integration (Optional)
+
+To enable Jira integration, you need to create an OAuth 2.0 (3LO) app in your Atlassian (Jira Cloud) account:
+
+1. Go to [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/create-3lo-app/).
+2. Click **Create app** > **OAuth 2.0 (3LO)**.
+3. Enter an app name (e.g., "Focus Pomodoro Bot Integration").
+4. Set the **Redirect URL** to:
+   - `https://your-domain-or-ngrok-url.com/oauth2callback/jira`
+   - (Replace with your actual DOMAIN_URL)
+5. Add the following **OAuth scopes**:
+   - `read:jira-work`
+   - `write:jira-work`
+   - `read:jira-user`
+   - `offline_access`
+6. Save the app and copy the **Client ID** and **Client Secret**.
+7. Add these to your `.env` file:
+   ```
+   JIRA_CLIENT_ID=your_jira_client_id_here
+   JIRA_CLIENT_SECRET=your_jira_client_secret_here
+   ```
+8. Restart the bot after updating your environment variables.
+
+**Note:**
+- Each user will authorize the bot to access their Jira account via the `/connect_jira` command (to be implemented).
+- The bot will use these credentials to fetch your open Jira tasks and log work sessions.
+
 ## Usage
 
 Interact with the bot in Telegram using commands or the reply keyboard.
@@ -157,6 +189,13 @@ Interact with the bot in Telegram using commands or the reply keyboard.
 **Google Sheets Integration:**
 -   `/connect_google`: Start the process to authorize the bot to access your Google Sheets.
 -   `/export_to_sheets <SPREADSHEET_ID> [SheetName]`: Export all logged session data to the specified Google Sheet ID and optional sheet name (defaults to "Pomodoro Log").
+
+**Jira Integration:**
+-   `/connect_jira`: Start the process to authorize the bot to access your Jira Cloud account.
+-   `/disconnect_jira`: Remove your Jira credentials from the bot.
+-   `/fetch_jira_projects`: List Jira projects with open issues assigned to you. Select a project to see your issues, and import them as bot tasks.
+    - Imported Jira issues are shown as tasks with names like `[JIRA-KEY] Issue Summary`.
+    - When you stop a timer for a Jira-linked task, you will be prompted to log the session to Jira.
 
 **Admin Commands (Only for ADMIN_USER_ID):**
 -   `/admin_notify_toggle`: Turn admin notifications on/off.

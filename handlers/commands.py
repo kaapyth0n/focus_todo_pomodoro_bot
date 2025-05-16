@@ -819,99 +819,66 @@ async def resume_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error(f"Error in resume_timer command for user {user_id}: {e}", exc_info=True)
         await update.message.reply_text(_(user_id, 'timer_error_resuming'))
 
+# --- Helper to check if a task is Jira-linked and extract the Jira key ---
+def get_jira_key_from_task_name(task_name):
+    if task_name and task_name.startswith("[") and "]" in task_name:
+        return task_name[1:task_name.index("]")]
+    return None
+
+# --- Modified stop_timer logic ---
 async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    log.debug(f"/stop_timer received from user {user_id}")
-    state_data = timer_states.get(user_id)
-    
-    if not state_data or state_data['state'] == 'stopped':
-        await update.message.reply_text(_(user_id, 'timer_no_timer_active'))
+    if user_id not in timer_states:
+        await update.message.reply_text('No timer is running or paused.')
         return
-        
-    try:
-        current_state = state_data['state']
-        accumulated_time = state_data['accumulated_time']
-        start_time_current_interval = state_data['start_time'] 
-        initial_start_time = state_data['initial_start_time']
-        duration_minutes_target = state_data['duration'] # Renamed for clarity
-        session_type = state_data['session_type'] 
-        job = state_data.get('job')
-
-        if job:
-            job.schedule_removal()
-            log.debug(f"Removed job for stopped timer (user {user_id}).")
-            
-        final_accumulated_minutes = accumulated_time # Start with previously accumulated
-        if current_state == 'running':
-            current_time = datetime.now()
-            time_worked_current_interval = (current_time - start_time_current_interval).total_seconds() / 60
-            final_accumulated_minutes += time_worked_current_interval
-        
-        is_completed = 1 if final_accumulated_minutes >= (duration_minutes_target - 0.01) else 0 
-        
-        project_id, task_id, project_name, task_name = None, None, None, None
-        message = ""
-        
-        # Pre-format accumulated and target times (round accumulated to 2 decimal places)
-        accumulated_time_formatted = f"{final_accumulated_minutes:.2f}" 
-        target_duration_formatted = f"{duration_minutes_target:.0f}" # Target is usually integer
-
-        if session_type == 'work':
-            project_id = database.get_current_project(user_id)
-            task_id = database.get_current_task(user_id)
-            if project_id and task_id:
-                project_name = database.get_project_name(project_id)
-                task_name = database.get_task_name(task_id)
-                if project_name and task_name:
-                     message = _(user_id, 'timer_stopped_work', 
-                                   project_name=project_name, task_name=task_name, 
-                                   accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
-                else: 
-                    message = _(user_id, 'timer_stopped_work_missing', 
-                                   accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
-            else:
-                message = _(user_id, 'timer_stopped_work_unselected', 
-                               accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
-                project_id, task_id = None, None # Ensure null if not properly selected
-        else: 
-            message = _(user_id, 'timer_stopped_break', 
-                           accumulated_time=accumulated_time_formatted, target_duration=target_duration_formatted)
-
-        # Add session to DB
-        session_added_id = database.add_pomodoro_session(
-            user_id=user_id, project_id=project_id, task_id=task_id,
-            start_time=initial_start_time, duration_minutes=final_accumulated_minutes,
-            session_type=session_type, completed=is_completed
+    # Calculate the final accumulated time
+    if timer_states[user_id]['state'] == 'running':
+        current_time = datetime.now()
+        time_worked = (current_time - timer_states[user_id]['start_time']).total_seconds() / 60
+        timer_states[user_id]['accumulated_time'] += time_worked
+    accumulated_time = timer_states[user_id]['accumulated_time']
+    is_completed = 1 if accumulated_time >= 25 else 0
+    # Get project and task IDs from user_data
+    if user_id in user_data and 'current_project' in user_data[user_id] and 'current_task' in user_data[user_id]:
+        project_id = user_data[user_id]['current_project']
+        task_id = user_data[user_id]['current_task']
+        # Save session to database
+        start_time = timer_states[user_id]['start_time']
+        database.add_pomodoro_session(
+            user_id=user_id,
+            project_id=project_id,
+            task_id=task_id,
+            start_time=start_time,
+            work_duration=accumulated_time,
+            completed=is_completed
         )
-            
+        # Get project and task names for the message
+        project_name = database.get_project_name(project_id)
+        task_name = database.get_task_name(task_id)
+        message = (
+            f'⏹ Timer stopped.\n\n'
+            f'Project: {project_name}\n'
+            f'Task: {task_name}\n'
+            f'Duration: {accumulated_time:.2f} minutes'
+        )
         await update.message.reply_text(message)
-        log.info(f"Stopped and logged {session_type} timer for user {user_id}.")
-        
-        # Attempt automatic append to Google Sheet *if* it was a work session and DB save likely worked
-        if session_type == 'work' and session_added_id:
-            session_data_for_append = {
-                'start_time': initial_start_time,
-                'duration_minutes': final_accumulated_minutes,
-                'completed': is_completed,
-                'session_type': session_type,
-                'project_id': project_id,
-                'task_id': task_id
-            }
-            await google_auth_handlers._append_single_session_to_sheet(user_id, session_data_for_append)
-           
-    except sqlite3.Error as e:
-         log.error(f"DB Error logging session on stop for user {user_id}: {e}")
-         await update.message.reply_text(_(user_id, 'timer_error_saving_session'))
-    except KeyError as e:
-        log.error(f"KeyError accessing timer_states for user {user_id} in stop_timer: {e}")
-        await update.message.reply_text(_(user_id, 'timer_state_inconsistent'))
-    except Exception as e:
-        log.error(f"Error in stop_timer command for user {user_id}: {e}", exc_info=True)
-        await update.message.reply_text(_(user_id, 'timer_error_stopping'))
-    finally:
-        if user_id in timer_states:
-            del timer_states[user_id]
-            log.debug(f"Cleaned timer state for user {user_id}.")
+        # If Jira-linked, prompt to log work
+        jira_key = get_jira_key_from_task_name(task_name)
+        if jira_key:
+            keyboard = [
+                [InlineKeyboardButton("Yes, log to Jira", callback_data=f"log_jira:{jira_key}:{accumulated_time:.2f}"),
+                 InlineKeyboardButton("No", callback_data="log_jira:skip")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"Do you want to log this {accumulated_time:.2f} min session to Jira issue {jira_key}?",
+                reply_markup=reply_markup
+            )
+    else:
+        await update.message.reply_text(f'⏹ Timer stopped. Total time worked: {accumulated_time:.2f} minutes.')
+    if 'job' in timer_states[user_id]:
+        timer_states[user_id]['job'].schedule_removal()
+    del timer_states[user_id]
 
 # --- Helper Function for Report Titles --- 
 def _get_report_title(user_id: int, report_type: str, report_date_str: str | None, offset: int) -> str:

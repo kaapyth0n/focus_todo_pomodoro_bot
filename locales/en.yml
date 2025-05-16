@@ -163,6 +163,12 @@ en:
       `/connect_google` - Authorize access to Google Sheets.
       `/export_to_sheets <SPREADSHEET_ID> [SheetName]` - Export all session data.
 
+    *Jira Integration:*
+      `/connect_jira` - Authorize access to your Jira Cloud account.
+      `/disconnect_jira` - Remove your Jira credentials from the bot.
+      `/fetch_jira_projects` - List Jira projects with your open issues. Import issues as tasks.
+      When you stop a timer for a Jira-linked task, you will be prompted to log the session to Jira.
+
     *Other:*
       `/language` - Set preferred language.
       `/help` - Show this help message.

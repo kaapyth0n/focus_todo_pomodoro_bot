@@ -15,6 +15,7 @@ from handlers import commands as cmd_handlers
 from handlers import callbacks as cb_handlers
 from handlers import google_auth as google_auth_handlers # Import google auth handlers
 from handlers import admin as admin_handlers # Import admin handlers
+from handlers import jira_auth as jira_auth_handlers
 # Import Flask runner
 from web_app import run_flask
 from handlers.commands import (
@@ -531,6 +532,9 @@ async def setup_bot_commands(application: Application):
         BotCommand("report", "Show report options"),
         BotCommand("connect_google", "Connect Google Sheets account"),
         BotCommand("export_to_sheets", "Export data to Google Sheets"),
+        BotCommand("connect_jira", "Connect Jira Cloud account"),
+        BotCommand("disconnect_jira", "Disconnect Jira Cloud account"),
+        BotCommand("fetch_jira_projects", "List Jira projects with your open issues"),
     ]
     await application.bot.set_my_commands(commands)
     log.info("Bot commands menu set.")
@@ -656,6 +660,23 @@ def main():
 
     # Register callback query handler from handlers.callbacks
     application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
+
+    # --- Jira Auth Conversation Handler ---
+    jira_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('connect_jira', jira_auth_handlers.connect_jira)],
+        states={
+            jira_auth_handlers.WAITING_JIRA_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, jira_auth_handlers.receive_jira_oauth_code)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', jira_auth_handlers.cancel_jira_oauth)],
+    )
+    application.add_handler(jira_conv_handler)
+    application.add_handler(CommandHandler('disconnect_jira', jira_auth_handlers.disconnect_jira))
+    application.add_handler(CommandHandler('fetch_jira_projects', jira_auth_handlers.fetch_jira_projects))
+    application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_project_callback, pattern="^jira_project:"))
+    application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_issue_callback, pattern="^jira_issue:"))
+    application.add_handler(CallbackQueryHandler(jira_auth_handlers.log_jira_callback, pattern="^log_jira:"))
 
     # Start Flask in a separate thread (imported from web_app.py)
     flask_thread = threading.Thread(target=run_flask)

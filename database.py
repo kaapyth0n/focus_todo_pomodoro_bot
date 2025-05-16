@@ -81,6 +81,8 @@ def create_database():
                 google_sheet_id TEXT DEFAULT NULL, -- Added column
                 is_admin INTEGER DEFAULT 0, -- Added column
                 language_code TEXT DEFAULT 'en', -- Added language preference
+                jira_credentials_json TEXT DEFAULT NULL,
+                jira_cloud_id TEXT DEFAULT NULL,
                 FOREIGN KEY (current_project_id) REFERENCES projects(project_id) ON DELETE SET NULL,
                 FOREIGN KEY (current_task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
             )
@@ -91,7 +93,9 @@ def create_database():
             'google_credentials_json': 'TEXT DEFAULT NULL', 
             'google_sheet_id': 'TEXT DEFAULT NULL', 
             'is_admin': 'INTEGER DEFAULT 0', 
-            'language_code': 'TEXT DEFAULT \'en\'' 
+            'language_code': 'TEXT DEFAULT \'en\'',
+            'jira_credentials_json': 'TEXT DEFAULT NULL',
+            'jira_cloud_id': 'TEXT DEFAULT NULL'
         })
         
         # --- Projects Table --- 
@@ -918,6 +922,64 @@ def get_google_sheet_id(user_id: int):
     except sqlite3.Error as e:
         log.error(f"Database error retrieving Google Sheet ID for user {user_id}: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+# --- Jira Credentials ---
+def store_jira_credentials(user_id, credentials_json: str, cloud_id: str):
+    """Stores the user's Jira OAuth credentials (as JSON string) and cloud_id."""
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET jira_credentials_json = ?, jira_cloud_id = ? WHERE user_id = ?", (credentials_json, cloud_id, user_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            log.info(f"Stored Jira credentials for user {user_id}.")
+            success = True
+        else:
+            log.warning(f"Attempted to store Jira credentials for non-existent user {user_id}.")
+    except sqlite3.Error as e:
+        log.error(f"Database error storing Jira credentials for user {user_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return success
+
+def get_jira_credentials(user_id):
+    """Retrieves the user's Jira OAuth credentials JSON string and cloud_id."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT jira_credentials_json, jira_cloud_id FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        if result and result[0]:
+            log.debug(f"Retrieved Jira credentials for user {user_id}.")
+            return result[0], result[1] # Return the JSON string and cloud_id
+        else:
+            log.debug(f"No Jira credentials found for user {user_id}.")
+            return None, None
+    except sqlite3.Error as e:
+        log.error(f"Database error retrieving Jira credentials for user {user_id}: {e}")
+        return None, None
+    finally:
+        if conn:
+            conn.close()
+
+def clear_jira_credentials(user_id):
+    """Removes the user's Jira OAuth credentials and cloud_id."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET jira_credentials_json = NULL, jira_cloud_id = NULL WHERE user_id = ?", (user_id,))
+        conn.commit()
+        log.info(f"Cleared Jira credentials for user {user_id}.")
+    except sqlite3.Error as e:
+        log.error(f"Database error clearing Jira credentials for user {user_id}: {e}")
     finally:
         if conn:
             conn.close()

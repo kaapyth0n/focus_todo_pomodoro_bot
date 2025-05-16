@@ -53,4 +53,8 @@ APP_TERMS_OF_SERVICE_URL = f"{DOMAIN_URL}/terms"
 
 print(f"App Info Pages: Home='{APP_HOME_PAGE_URL}', Privacy='{APP_PRIVACY_POLICY_URL}', Terms='{APP_TERMS_OF_SERVICE_URL}'")
 
+# Jira Cloud Integration
+JIRA_CLIENT_ID = os.getenv('JIRA_CLIENT_ID')
+JIRA_CLIENT_SECRET = os.getenv('JIRA_CLIENT_SECRET')
+
 # You might want to add more specific checks for other variables if they are critical 
