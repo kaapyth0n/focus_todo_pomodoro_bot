@@ -666,8 +666,8 @@ def main():
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_project_callback, pattern="^jira_project:"))
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_issue_callback, pattern="^jira_issue:"))
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.log_jira_callback, pattern="^log_jira:"))
-    application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_add_all_callback, pattern="^jira_add_all:"))
+    application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
 
     # Register the general text handler LAST
     application.add_handler(MessageHandler(
