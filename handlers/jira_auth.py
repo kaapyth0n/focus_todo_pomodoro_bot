@@ -216,11 +216,73 @@ async def jira_project_callback(update: Update, context: ContextTypes.DEFAULT_TY
             key = issue.get("key")
             summary = issue.get("fields", {}).get("summary", "(No summary)")
             keyboard.append([InlineKeyboardButton(f"[{key}] {summary}", callback_data=f"jira_issue:{key}")])
+        # Add 'Add All Tasks' button
+        keyboard.append([InlineKeyboardButton("➕ Add All Tasks", callback_data=f"jira_add_all:{project_id}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("Open Jira issues assigned to you in this project:", reply_markup=reply_markup)
     except Exception as e:
         log.error(f"Error fetching Jira issues for project: {e}", exc_info=True)
         await query.edit_message_text("An error occurred fetching Jira issues. Please try again.")
+
+# --- Callback query handler for jira_add_all:<project_id> ---
+async def jira_add_all_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+    if not data.startswith("jira_add_all:"):
+        return
+    project_id = data.split(":")[1]
+    creds_json, cloud_id = database.get_jira_credentials(user_id)
+    if not creds_json or not cloud_id:
+        await query.edit_message_text("You are not connected to Jira. Use /connect_jira first.")
+        return
+    try:
+        creds = json.loads(creds_json)
+        access_token = creds.get("access_token")
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+        # JQL: assigned to current user, unresolved, in selected project
+        jql = f"assignee = currentUser() AND resolution = Unresolved AND project = {project_id}"
+        url = f"{JIRA_API_BASE}/ex/jira/{cloud_id}/rest/api/3/search?jql={jql}"
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            await query.edit_message_text(f"Failed to fetch Jira issues: {resp.text}")
+            return
+        data = resp.json()
+        issues = data.get("issues", [])
+        if not issues:
+            await query.edit_message_text("No open Jira issues assigned to you in this project.")
+            return
+        # Get or create the bot project
+        project_name = None
+        if issues:
+            project_name = issues[0].get("fields", {}).get("project", {}).get("name")
+        if not project_name:
+            await query.edit_message_text("Could not determine Jira project name.")
+            return
+        projects = database.get_projects(user_id)
+        project_id_db = None
+        for pid, pname in projects:
+            if pname == project_name:
+                project_id_db = pid
+                break
+        if not project_id_db:
+            project_id_db = database.add_project(user_id, project_name)
+        # Import all issues as tasks
+        tasks = database.get_tasks(project_id_db)
+        existing_task_names = set(t[1] for t in tasks)
+        imported = 0
+        for issue in issues:
+            key = issue.get("key")
+            summary = issue.get("fields", {}).get("summary", "(No summary)")
+            jira_task_name = f"[{key}] {summary}"
+            if jira_task_name not in existing_task_names:
+                database.add_task(project_id_db, jira_task_name)
+                imported += 1
+        await query.edit_message_text(f"Imported {imported} Jira issues as tasks into project '{project_name}'.")
+    except Exception as e:
+        log.error(f"Error importing all Jira issues as tasks: {e}", exc_info=True)
+        await query.edit_message_text("An error occurred importing Jira issues as tasks. Please try again.")
 
 # --- Callback query handler for jira_issue:<issue_key> ---
 async def jira_issue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
