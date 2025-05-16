@@ -574,28 +574,6 @@ def main():
     BTN_LIST_PROJECTS = "📂 Projects"
     BTN_LIST_TASKS = "📝 Tasks"
 
-    # Register command handlers from handlers.commands
-    application.add_handler(CommandHandler('start', cmd_handlers.start))
-    application.add_handler(CommandHandler('select_project', cmd_handlers.select_project))
-    application.add_handler(CommandHandler('list_projects', cmd_handlers.list_projects))
-    application.add_handler(CommandHandler('select_task', cmd_handlers.select_task))
-    application.add_handler(CommandHandler('list_tasks', cmd_handlers.list_tasks))
-    application.add_handler(CommandHandler('start_timer', cmd_handlers.start_timer))
-    application.add_handler(CommandHandler('pause_timer', cmd_handlers.pause_timer))
-    application.add_handler(CommandHandler('resume_timer', cmd_handlers.resume_timer))
-    application.add_handler(CommandHandler('stop_timer', cmd_handlers.stop_timer))
-    application.add_handler(CommandHandler('report', cmd_handlers.report_command))
-    application.add_handler(CommandHandler('delete_project', cmd_handlers.delete_project_command))
-    application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
-    application.add_handler(CommandHandler('help', cmd_handlers.help_command))
-    application.add_handler(CommandHandler('export_to_sheets', google_auth_handlers.export_to_sheets))
-    application.add_handler(CommandHandler('language', cmd_handlers.set_language_command))
-    
-    # Register Admin Handlers
-    application.add_handler(CommandHandler(admin_handlers.INITIAL_ADMIN_COMMAND.lstrip('/'), admin_handlers.set_initial_admin))
-    application.add_handler(CommandHandler('admin_notify_toggle', admin_handlers.admin_notify_toggle))
-    application.add_handler(CommandHandler('admin_stats', admin_handlers.admin_stats))
-
     # --- Google Auth Conversation Handler ---
     google_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('connect_google', google_auth_handlers.connect_google)],
@@ -651,16 +629,6 @@ def main():
     )
     application.add_handler(forwarded_conv_handler)
 
-    # Handle message creation from button callbacks and general text messages
-    # This handler now maps translated button text to actions
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        cmd_handlers.handle_text_message
-    ))
-
-    # Register callback query handler from handlers.callbacks
-    application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
-
     # --- Jira Auth Conversation Handler ---
     jira_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('connect_jira', jira_auth_handlers.connect_jira)],
@@ -672,11 +640,39 @@ def main():
         fallbacks=[CommandHandler('cancel', jira_auth_handlers.cancel_jira_oauth)],
     )
     application.add_handler(jira_conv_handler)
+
+    # Register command handlers from handlers.commands
+    application.add_handler(CommandHandler('start', cmd_handlers.start))
+    application.add_handler(CommandHandler('select_project', cmd_handlers.select_project))
+    application.add_handler(CommandHandler('list_projects', cmd_handlers.list_projects))
+    application.add_handler(CommandHandler('select_task', cmd_handlers.select_task))
+    application.add_handler(CommandHandler('list_tasks', cmd_handlers.list_tasks))
+    application.add_handler(CommandHandler('start_timer', cmd_handlers.start_timer))
+    application.add_handler(CommandHandler('pause_timer', cmd_handlers.pause_timer))
+    application.add_handler(CommandHandler('resume_timer', cmd_handlers.resume_timer))
+    application.add_handler(CommandHandler('stop_timer', cmd_handlers.stop_timer))
+    application.add_handler(CommandHandler('report', cmd_handlers.report_command))
+    application.add_handler(CommandHandler('delete_project', cmd_handlers.delete_project_command))
+    application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
+    application.add_handler(CommandHandler('help', cmd_handlers.help_command))
+    application.add_handler(CommandHandler('export_to_sheets', google_auth_handlers.export_to_sheets))
+    application.add_handler(CommandHandler('language', cmd_handlers.set_language_command))
+    # Register Admin Handlers
+    application.add_handler(CommandHandler(admin_handlers.INITIAL_ADMIN_COMMAND.lstrip('/'), admin_handlers.set_initial_admin))
+    application.add_handler(CommandHandler('admin_notify_toggle', admin_handlers.admin_notify_toggle))
+    application.add_handler(CommandHandler('admin_stats', admin_handlers.admin_stats))
     application.add_handler(CommandHandler('disconnect_jira', jira_auth_handlers.disconnect_jira))
     application.add_handler(CommandHandler('fetch_jira_projects', jira_auth_handlers.fetch_jira_projects))
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_project_callback, pattern="^jira_project:"))
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.jira_issue_callback, pattern="^jira_issue:"))
     application.add_handler(CallbackQueryHandler(jira_auth_handlers.log_jira_callback, pattern="^log_jira:"))
+    application.add_handler(CallbackQueryHandler(cb_handlers.button_callback))
+
+    # Register the general text handler LAST
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        cmd_handlers.handle_text_message
+    ))
 
     # Start Flask in a separate thread (imported from web_app.py)
     flask_thread = threading.Thread(target=run_flask)
