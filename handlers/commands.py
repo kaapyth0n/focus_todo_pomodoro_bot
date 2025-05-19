@@ -689,18 +689,19 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await context.bot.send_message(chat_id=user_id, text=success_message, reply_markup=reply_markup)
-                
-                # Attempt automatic append to Google Sheet
-                if session_added_id: # Check if DB save was likely successful
-                    session_data_for_append = {
-                        'start_time': initial_start_time,
-                        'duration_minutes': duration_minutes,
-                        'completed': is_completed,
-                        'session_type': session_type,
-                        'project_id': project_id,
-                        'task_id': task_id
-                    }
-                    await google_auth_handlers._append_single_session_to_sheet(user_id, session_data_for_append)
+                # Jira worklog prompt if task is Jira-linked
+                jira_key = get_jira_key_from_task_name(task_name)
+                if jira_key:
+                    jira_keyboard = [
+                        [InlineKeyboardButton("Yes, log to Jira", callback_data=f"log_jira:{jira_key}:{duration_minutes:.2f}"),
+                         InlineKeyboardButton("No", callback_data="log_jira:skip")]
+                    ]
+                    jira_reply_markup = InlineKeyboardMarkup(jira_keyboard)
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"Do you want to log this {duration_minutes:.2f} min session to Jira issue {jira_key}?",
+                        reply_markup=jira_reply_markup
+                    )
                 
             elif session_type == 'break': 
                  success_message = _(user_id, 'timer_finished_break_success', duration_minutes=duration_minutes)
