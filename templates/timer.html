@@ -19,12 +19,46 @@
             background-color: white;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
+        .task-banner {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            background: #f1f5f9;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #334155;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .controls button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 20px;
+            background: #e2e8f0;
+            cursor: pointer;
+        }
+        .controls button.primary { background: #22c55e; color: white; }
+        .controls button.danger { background: #ef4444; color: white; }
         .timer {
             font-size: 60px;
             font-weight: bold;
             color: #333;
             margin: 30px 0;
         }
+        .dial {
+            width: 260px;
+            height: 260px;
+            margin: 0 auto;
+            position: relative;
+        }
+        .dial svg { transform: rotate(-90deg); display: block; }
+        .dial .center-time { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
         .status {
             font-size: 18px;
             margin-bottom: 20px;
@@ -53,8 +87,20 @@
 <body id="body-status" class="loading">
     <div class="timer-container">
         <h1 id="timer-title">{{ _('loading_timer') }}</h1>
+        <div id="task-banner" class="task-banner"><span id="task-text"></span></div>
         <div id="status" class="status loading">{{ _('loading') }}</div>
-        <div id="countdown" class="timer">--:--</div>
+        <div class="dial">
+            <svg width="260" height="260">
+                <circle cx="130" cy="130" r="120" stroke="#e2e8f0" stroke-width="12" fill="none"/>
+                <circle id="dial-progress" cx="130" cy="130" r="120" stroke="#22c55e" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="0 999" />
+            </svg>
+            <div class="center-time"><div id="countdown" class="timer">--:--</div></div>
+        </div>
+        <div class="controls">
+            <button id="btn-pause" class="">⏸ {{ _('button_pause') }}</button>
+            <button id="btn-resume" class="primary">▶ {{ _('button_resume') }}</button>
+            <button id="btn-stop" class="danger">⏹ {{ _('button_stop') }}</button>
+        </div>
         
         <!-- Audio Player -->
         <audio id="background-audio" loop preload="auto">
@@ -79,6 +125,13 @@
         const bodyElem = document.getElementById('body-status');
         const audioElement = document.getElementById('background-audio');
         const muteButton = document.getElementById('mute-button');
+        const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
+        const taskBanner = document.getElementById('task-banner');
+        const taskText = document.getElementById('task-text');
+        const btnPause = document.getElementById('btn-pause');
+        const btnResume = document.getElementById('btn-resume');
+        const btnStop = document.getElementById('btn-stop');
+        const dialProgress = document.getElementById('dial-progress');
         
         // Define hardcoded fallback translations in case server-side translation fails
         const fallbackTranslations = {
@@ -139,6 +192,7 @@
         let localIntervalId = null;
         let syncIntervalId = null;
         const SYNC_INTERVAL_MS = 5000; // Sync with server every 5 seconds
+        let lastDurationSeconds = 0; // for dial
         
         // Add console logging for debugging on the web page itself
         const originalLog = console.log;
@@ -218,6 +272,16 @@
         function updateDisplay() {
             // Update countdown text
             countdownElem.innerText = formatTime(localRemainingSeconds);
+            // Update dial
+            const total = Math.max(lastDurationSeconds, localRemainingSeconds);
+            const base = lastDurationSeconds > 0 ? lastDurationSeconds : (currentDuration * 60);
+            const remaining = Math.max(0, localRemainingSeconds);
+            const progressed = Math.max(0, base - remaining);
+            const r = 120;
+            const circumference = 2 * Math.PI * r;
+            const ratio = Math.min(1, progressed / Math.max(1, base));
+            const dash = Math.max(1, circumference * ratio);
+            dialProgress.setAttribute('stroke-dasharray', `${dash} ${Math.max(1, circumference - dash)}`);
             
             // Update status text, title and body class
             let statusText = translations.loading;
@@ -255,6 +319,17 @@
             statusElem.className = `status ${currentState}`;
             titleElem.innerText = `${titleText} (${currentDuration} ${translations.minute})`;
             bodyElem.className = bodyClass; // Update body class for background color etc.
+            // Task banner
+            if (window.__latestTaskName) {
+                taskBanner.style.display = 'flex';
+                taskText.textContent = window.__latestTaskName;
+            } else {
+                taskBanner.style.display = 'none';
+            }
+            // Buttons
+            btnPause.disabled = currentState !== 'running';
+            btnResume.disabled = currentState !== 'paused';
+            btnStop.disabled = (currentState !== 'running' && currentState !== 'paused');
         }
 
         function stopLocalCountdown() {
@@ -288,7 +363,7 @@
             }, 1000);
         }
 
-        function updateState(newState, newRemainingSeconds, newDuration, newSessionType) {
+        function updateState(newState, newRemainingSeconds, newDuration, newSessionType, taskName=null) {
             web_log.debug(`Updating state: ${newState}, session: ${newSessionType}, remaining: ${newRemainingSeconds}s, duration: ${newDuration}min`);
             const stateChanged = currentState !== newState;
             const typeChanged = currentSessionType !== newSessionType;
@@ -300,6 +375,8 @@
             currentState = newState;
             currentDuration = newDuration || 25; // Use fetched duration or default
             currentSessionType = newSessionType || 'work'; // Use fetched type or default
+            lastDurationSeconds = Math.max(lastDurationSeconds, Math.round(currentDuration * 60));
+            if (taskName) { window.__latestTaskName = taskName; }
 
             // Update local time only if significantly different or state/type changed
             // or if the local countdown is not running (e.g., was paused)
@@ -338,7 +415,7 @@
         async function syncWithServer() {
             web_log.debug(`Syncing with server for user ${userId}...`);
             try {
-                const response = await fetch(`/api/timer_status/${userId}`);
+                const response = await fetch(`/api/timer_status/${userId}`, { headers: { 'X-Telegram-Init-Data': initData }});
                 if (!response.ok) {
                     throw new Error(`API Error: ${response.status}`);
                 }
@@ -353,7 +430,8 @@
                      effectiveState = 'finished'; // Treat running but 0 time as finished
                 }
 
-                updateState(effectiveState, data.remaining_seconds, data.duration, data.session_type);
+                const taskLabel = (data.project_name && data.task_name) ? `[${data.project_name}] ${data.task_name}` : null;
+                updateState(effectiveState, data.remaining_seconds, data.duration, data.session_type, taskLabel);
 
             } catch (error) {
                 web_log.error('Sync error:', error);
@@ -374,6 +452,37 @@
             web_log.info(`Periodic sync started (${SYNC_INTERVAL_MS}ms).`);
         }
         
+        // Controls
+        btnPause.addEventListener('click', async () => {
+            try {
+                const res = await fetch(`/api/timer/${userId}/pause`, { method: 'POST', headers: { 'X-Telegram-Init-Data': initData }});
+                const j = await res.json();
+                if (j && j.ok) {
+                    updateState('paused', j.remaining_seconds ?? localRemainingSeconds, currentDuration, currentSessionType);
+                }
+            } catch (e) { web_log.error('Pause error', e); }
+        });
+
+        btnResume.addEventListener('click', async () => {
+            try {
+                const res = await fetch(`/api/timer/${userId}/resume`, { method: 'POST', headers: { 'X-Telegram-Init-Data': initData }});
+                const j = await res.json();
+                if (j && j.ok) {
+                    updateState('running', j.remaining_seconds ?? localRemainingSeconds, currentDuration, currentSessionType);
+                }
+            } catch (e) { web_log.error('Resume error', e); }
+        });
+
+        btnStop.addEventListener('click', async () => {
+            try {
+                const res = await fetch(`/api/timer/${userId}/stop`, { method: 'POST', headers: { 'X-Telegram-Init-Data': initData }});
+                const j = await res.json();
+                if (j && j.ok) {
+                    updateState('stopped', 0, currentDuration, currentSessionType);
+                }
+            } catch (e) { web_log.error('Stop error', e); }
+        });
+
         // Start initialization
         initTimer();
     </script>

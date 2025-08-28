@@ -1,11 +1,17 @@
 from flask import Flask, render_template, jsonify, send_from_directory, request, g
 import os
 from datetime import datetime, timezone
-from config import timer_states, DOMAIN_URL, FLASK_PORT, SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
+from config import timer_states, DOMAIN_URL, FLASK_PORT, SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE, TOKEN
 import logging
 import traceback # Import traceback for detailed error logging
 from flask_babel import Babel
 from i18n_utils import get_user_lang, _
+import hmac
+import hashlib
+import time
+import urllib.parse as up
+import database
+from handlers import commands as cmd_handlers  # For scheduling PTB job callbacks (timer_finished)
 
 app = Flask(__name__)
 
@@ -42,6 +48,62 @@ def inject_utilities():
             return _(user_id, text)
         return text # Return original text if no user_id (e.g. for static pages)
     return dict(_=translate)
+
+# --- Integration: Inject PTB JobQueue into Flask ---
+def set_job_queue(job_queue):
+    """Allows the Telegram bot to pass its JobQueue instance to Flask for scheduling resume jobs."""
+    app.config['JOB_QUEUE'] = job_queue
+    web_log.info("JobQueue injected into Flask app config.")
+
+def _get_job_queue():
+    jq = app.config.get('JOB_QUEUE')
+    if not jq:
+        web_log.error("JobQueue is not set in Flask app config. Resume operations will fail.")
+    return jq
+
+# --- Telegram Web App initData verification ---
+def _verify_tg_init_data(init_data: str, max_age_sec: int = 3600) -> dict | None:
+    """Verify Telegram Mini App initData per spec. Returns parsed dict (without hash) on success, else None."""
+    try:
+        if not init_data:
+            return None
+        parsed = dict(up.parse_qsl(init_data, keep_blank_values=True))
+        recv_hash = parsed.pop('hash', None)
+        if not recv_hash:
+            return None
+        parts = [f"{k}={parsed[k]}" for k in sorted(parsed.keys())]
+        data_check_string = "\n".join(parts)
+        # secret_key = HMAC_SHA256("WebAppData", bot_token)
+        secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+        calc_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc_hash, recv_hash):
+            return None
+        auth_date = int(parsed.get('auth_date', '0'))
+        if auth_date <= 0 or abs(int(time.time()) - auth_date) > max_age_sec:
+            return None
+        return parsed
+    except Exception as e:
+        web_log.error(f"Error verifying Telegram initData: {e}")
+        return None
+
+def _require_tg_user(user_id_from_path: int) -> tuple[bool, int | None, str | None]:
+    """Reads initData from header or form, verifies it, and ensures the user matches the path param."""
+    init_data = request.headers.get('X-Telegram-Init-Data') or request.form.get('initData') or request.args.get('initData')
+    parsed = _verify_tg_init_data(init_data)
+    if not parsed:
+        return False, None, 'Unauthorized'
+    # user field is JSON; for safety, accept both serialized dict or string
+    user_raw = parsed.get('user')
+    try:
+        # If user_raw is JSON, leave as is; if not, it may already be a dict-like string
+        import json
+        user_obj = json.loads(user_raw) if isinstance(user_raw, str) else user_raw
+        verified_user_id = int(user_obj.get('id')) if isinstance(user_obj, dict) else None
+    except Exception:
+        verified_user_id = None
+    if verified_user_id != user_id_from_path:
+        return False, verified_user_id, 'Forbidden'
+    return True, verified_user_id, None
 
 # --- Static Information Pages ---
 @app.route('/')
@@ -110,6 +172,11 @@ def timer_page(user_id):
 def api_timer_status(user_id):
     web_log.debug(f"API request for timer status for user {user_id}")
     try:
+        # Require Telegram WebApp auth for status as well
+        ok, verified_user_id, err = _require_tg_user(user_id)
+        if not ok:
+            code = 403 if verified_user_id else 401
+            return jsonify({'ok': False, 'error': err}), code
         state_data = timer_states.get(user_id)
 
         if not state_data:
@@ -156,12 +223,20 @@ def api_timer_status(user_id):
                 # If stopped early, also report 0 seconds remaining (clock stops)
                 remaining_seconds = 0 
 
+        # Fetch current project/task names for display
+        project_id = database.get_current_project(user_id)
+        task_id = database.get_current_task(user_id)
+        project_name = database.get_project_name(project_id) if project_id else None
+        task_name = database.get_task_name(task_id) if task_id else None
+
         web_log.debug(f"API: Returning state={current_state}, session={session_type}, remaining={remaining_seconds}, duration={duration_minutes} for user {user_id}")
         return jsonify({
             'state': current_state,
             'remaining_seconds': remaining_seconds,
-            'duration': duration_minutes, 
-            'session_type': session_type # Include session_type in the response
+            'duration': duration_minutes,
+            'session_type': session_type,
+            'project_name': project_name,
+            'task_name': task_name
         })
 
     except Exception as e:
@@ -272,3 +347,127 @@ def run_flask():
         web_log.critical(f"Flask server failed to start: {e}", exc_info=True)
         # Exit? Or let the bot continue without the web UI?
         # For now, just log critical error. 
+
+# --- Protected control endpoints (Pause / Resume / Stop) ---
+@app.post('/api/timer/<int:user_id>/pause')
+def api_pause_timer(user_id: int):
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+    state_data = timer_states.get(user_id)
+    if not state_data or state_data.get('state') != 'running':
+        return jsonify({'ok': False, 'error': 'No running timer'}), 400
+    try:
+        start_time = state_data.get('start_time')
+        if not start_time:
+            return jsonify({'ok': False, 'error': 'Inconsistent state'}), 500
+        elapsed_min = (datetime.now() - start_time).total_seconds() / 60
+        state_data['accumulated_time'] = state_data.get('accumulated_time', 0) + elapsed_min
+        state_data['state'] = 'paused'
+        job = state_data.get('job')
+        if job:
+            try:
+                job.schedule_removal()
+            except Exception:
+                pass
+            state_data['job'] = None
+        # Respond with status-like payload
+        duration_minutes = state_data.get('duration', 25)
+        remaining_seconds = max(0, round((duration_minutes - state_data['accumulated_time']) * 60))
+        return jsonify({'ok': True, 'state': 'paused', 'remaining_seconds': remaining_seconds})
+    except Exception as e:
+        web_log.error(f"Error pausing timer via API for {user_id}: {e}")
+        return jsonify({'ok': False, 'error': 'Internal error'}), 500
+
+
+@app.post('/api/timer/<int:user_id>/resume')
+def api_resume_timer(user_id: int):
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+    state_data = timer_states.get(user_id)
+    if not state_data or state_data.get('state') != 'paused':
+        return jsonify({'ok': False, 'error': 'No paused timer'}), 400
+    try:
+        duration_minutes = state_data.get('duration', 25)
+        accumulated = state_data.get('accumulated_time', 0)
+        session_type = state_data.get('session_type', 'work')
+        remaining_min = duration_minutes - accumulated
+        if remaining_min <= 0:
+            # No time left: treat as completed
+            state_data['state'] = 'stopped'
+            return jsonify({'ok': True, 'state': 'finished', 'remaining_seconds': 0})
+        job_queue = _get_job_queue()
+        if not job_queue:
+            return jsonify({'ok': False, 'error': 'Scheduler unavailable'}), 500
+        # Schedule using the PTB callback to keep unified logic
+        data = {'user_id': user_id, 'duration': duration_minutes, 'session_type': session_type}
+        job = job_queue.run_once(cmd_handlers.timer_finished, remaining_min * 60, data=data, name=f"timer_{user_id}")
+        state_data['state'] = 'running'
+        state_data['start_time'] = datetime.now()
+        state_data['job'] = job
+        remaining_seconds = max(0, round(remaining_min * 60))
+        return jsonify({'ok': True, 'state': 'running', 'remaining_seconds': remaining_seconds})
+    except Exception as e:
+        web_log.error(f"Error resuming timer via API for {user_id}: {e}")
+        return jsonify({'ok': False, 'error': 'Internal error'}), 500
+
+
+@app.post('/api/timer/<int:user_id>/stop')
+def api_stop_timer(user_id: int):
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+    state_data = timer_states.get(user_id)
+    if not state_data:
+        return jsonify({'ok': False, 'error': 'No active timer'}), 400
+    try:
+        # Accumulate if running
+        if state_data.get('state') == 'running':
+            start_time = state_data.get('start_time')
+            if not start_time:
+                return jsonify({'ok': False, 'error': 'Inconsistent state'}), 500
+            elapsed = (datetime.now() - start_time).total_seconds() / 60
+            state_data['accumulated_time'] = state_data.get('accumulated_time', 0) + elapsed
+
+        duration = float(state_data.get('duration', 25))
+        accumulated = float(state_data.get('accumulated_time', 0))
+        completed = 1 if accumulated >= (duration - 0.01) else 0
+        session_type = state_data.get('session_type', 'work')
+        initial_start_time = state_data.get('initial_start_time') or state_data.get('start_time') or datetime.now()
+        # Persist
+        project_id = database.get_current_project(user_id) if session_type == 'work' else None
+        task_id = database.get_current_task(user_id) if session_type == 'work' else None
+        try:
+            database.add_pomodoro_session(
+                user_id=user_id,
+                project_id=project_id,
+                task_id=task_id,
+                start_time=initial_start_time,
+                duration_minutes=accumulated,
+                session_type=session_type,
+                completed=completed,
+            )
+        except Exception as db_err:
+            web_log.error(f"DB error logging stop via API for {user_id}: {db_err}")
+
+        # Cancel job
+        job = state_data.get('job')
+        if job:
+            try:
+                job.schedule_removal()
+            except Exception:
+                pass
+        # Cleanup
+        try:
+            del timer_states[user_id]
+        except Exception:
+            pass
+
+        return jsonify({'ok': True, 'state': 'stopped', 'accumulated_minutes': round(accumulated, 2)})
+    except Exception as e:
+        web_log.error(f"Error stopping timer via API for {user_id}: {e}")
+        return jsonify({'ok': False, 'error': 'Internal error'}), 500

@@ -17,7 +17,7 @@ from handlers import google_auth as google_auth_handlers # Import google auth ha
 from handlers import admin as admin_handlers # Import admin handlers
 from handlers import jira_auth as jira_auth_handlers
 # Import Flask runner
-from web_app import run_flask
+from web_app import run_flask, set_job_queue
 from handlers.commands import (
     FORWARDED_MESSAGE_PROJECT_SELECT, FORWARDED_MESSAGE_PROJECT_CREATE,
     handle_forwarded_message, handle_forwarded_project_name
@@ -674,6 +674,15 @@ def main():
         filters.TEXT & ~filters.COMMAND,
         cmd_handlers.handle_text_message
     ))
+
+    # Inject JobQueue into Flask so web endpoints can schedule/resume timers
+    try:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
+            set_job_queue(application.job_queue)
+        else:
+            log.warning("Application has no job_queue; web controls may not function.")
+    except Exception as inj_err:
+        log.error(f"Failed to inject JobQueue into Flask: {inj_err}")
 
     # Start Flask in a separate thread (imported from web_app.py)
     flask_thread = threading.Thread(target=run_flask)
