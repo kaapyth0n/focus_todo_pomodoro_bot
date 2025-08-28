@@ -97,9 +97,9 @@
             <div class="center-time"><div id="countdown" class="timer">--:--</div></div>
         </div>
         <div class="controls">
-            <button id="btn-pause" class="">⏸ {{ _('button_pause') }}</button>
-            <button id="btn-resume" class="primary">▶ {{ _('button_resume') }}</button>
-            <button id="btn-stop" class="danger">⏹ {{ _('button_stop') }}</button>
+            <button id="btn-pause" class="">{{ _('button_pause') }}</button>
+            <button id="btn-resume" class="primary">{{ _('button_resume') }}</button>
+            <button id="btn-stop" class="danger">{{ _('button_stop') }}</button>
         </div>
         
         <!-- Audio Player -->
@@ -126,6 +126,7 @@
         const audioElement = document.getElementById('background-audio');
         const muteButton = document.getElementById('mute-button');
         const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
+        const isMiniApp = !!initData;
         const taskBanner = document.getElementById('task-banner');
         const taskText = document.getElementById('task-text');
         const btnPause = document.getElementById('btn-pause');
@@ -157,24 +158,24 @@
         
         // Get translations from server with fallbacks
         const translations = {
-            loading: "{{ _('loading')|default('Loading...', true) }}",
-            loadingTimer: "{{ _('loading_timer')|default('Loading Timer...', true) }}",
-            focusRunning: "{{ _('focus_running')|default('Focus Running', true) }}",
-            breakRunning: "{{ _('break_running')|default('Break Running', true) }}",
-            focusTimer: "{{ _('focus_timer')|default('Focus Timer', true) }}",
-            breakTimer: "{{ _('break_timer')|default('Break Timer', true) }}",
-            timerPaused: "{{ _('web_timer_paused')|default('Timer Paused', true) }}",
-            focusPaused: "{{ _('focus_paused')|default('Focus Paused', true) }}",
-            breakPaused: "{{ _('break_paused')|default('Break Paused', true) }}",
-            timerStopped: "{{ _('web_timer_stopped')|default('Timer Stopped', true) }}",
-            timesUp: "{{ _('web_times_up')|default('Time\'s up!', true) }}",
-            focusFinished: "{{ _('focus_finished')|default('Focus Finished', true) }}",
-            breakFinished: "{{ _('break_finished')|default('Break Finished', true) }}",
-            error: "{{ _('error_connection')|default('Error / Connection Issue', true) }}",
-            timerError: "{{ _('timer_error')|default('Timer Error', true) }}",
-            minute: "{{ _('minute')|default('min', true) }}",
-            mute: "{{ _('mute')|default('Mute', true) }}",
-            unmute: "{{ _('unmute')|default('Unmute', true) }}"
+            loading: {{ _('loading')|default('Loading...', true)|tojson }},
+            loadingTimer: {{ _('loading_timer')|default('Loading Timer...', true)|tojson }},
+            focusRunning: {{ _('focus_running')|default('Focus Running', true)|tojson }},
+            breakRunning: {{ _('break_running')|default('Break Running', true)|tojson }},
+            focusTimer: {{ _('focus_timer')|default('Focus Timer', true)|tojson }},
+            breakTimer: {{ _('break_timer')|default('Break Timer', true)|tojson }},
+            timerPaused: {{ _('web_timer_paused')|default('Timer Paused', true)|tojson }},
+            focusPaused: {{ _('focus_paused')|default('Focus Paused', true)|tojson }},
+            breakPaused: {{ _('break_paused')|default('Break Paused', true)|tojson }},
+            timerStopped: {{ _('web_timer_stopped')|default('Timer Stopped', true)|tojson }},
+            timesUp: {{ _('web_times_up')|default("Time's up!", true)|tojson }},
+            focusFinished: {{ _('focus_finished')|default('Focus Finished', true)|tojson }},
+            breakFinished: {{ _('break_finished')|default('Break Finished', true)|tojson }},
+            error: {{ _('error_connection')|default('Error / Connection Issue', true)|tojson }},
+            timerError: {{ _('timer_error')|default('Timer Error', true)|tojson }},
+            minute: {{ _('minute')|default('min', true)|tojson }},
+            mute: {{ _('mute')|default('Mute', true)|tojson }},
+            unmute: {{ _('unmute')|default('Unmute', true)|tojson }}
         };
         
         // Check if translations are working, use fallbacks for any missing ones
@@ -326,10 +327,10 @@
             } else {
                 taskBanner.style.display = 'none';
             }
-            // Buttons
-            btnPause.disabled = currentState !== 'running';
-            btnResume.disabled = currentState !== 'paused';
-            btnStop.disabled = (currentState !== 'running' && currentState !== 'paused');
+            // Buttons (enabled only in Mini App context)
+            btnPause.disabled = !isMiniApp || currentState !== 'running';
+            btnResume.disabled = !isMiniApp || currentState !== 'paused';
+            btnStop.disabled = !isMiniApp || (currentState !== 'running' && currentState !== 'paused');
         }
 
         function stopLocalCountdown() {
@@ -459,6 +460,8 @@
                 const j = await res.json();
                 if (j && j.ok) {
                     updateState('paused', j.remaining_seconds ?? localRemainingSeconds, currentDuration, currentSessionType);
+                } else {
+                    web_log.error('Pause failed', j);
                 }
             } catch (e) { web_log.error('Pause error', e); }
         });
@@ -469,6 +472,8 @@
                 const j = await res.json();
                 if (j && j.ok) {
                     updateState('running', j.remaining_seconds ?? localRemainingSeconds, currentDuration, currentSessionType);
+                } else {
+                    web_log.error('Resume failed', j);
                 }
             } catch (e) { web_log.error('Resume error', e); }
         });
@@ -479,6 +484,8 @@
                 const j = await res.json();
                 if (j && j.ok) {
                     updateState('stopped', 0, currentDuration, currentSessionType);
+                } else {
+                    web_log.error('Stop failed', j);
                 }
             } catch (e) { web_log.error('Stop error', e); }
         });
