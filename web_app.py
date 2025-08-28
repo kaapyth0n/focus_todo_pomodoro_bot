@@ -172,11 +172,20 @@ def timer_page(user_id):
 def api_timer_status(user_id):
     web_log.debug(f"API request for timer status for user {user_id}")
     try:
-        # Require Telegram WebApp auth for status as well
-        ok, verified_user_id, err = _require_tg_user(user_id)
-        if not ok:
-            code = 403 if verified_user_id else 401
-            return jsonify({'ok': False, 'error': err}), code
+        # Best-effort auth: if initData present and mismatched user, reject; otherwise allow public status
+        init_data = request.headers.get('X-Telegram-Init-Data') or request.args.get('initData')
+        if init_data:
+            parsed = _verify_tg_init_data(init_data)
+            if parsed:
+                try:
+                    import json
+                    user_raw = parsed.get('user')
+                    user_obj = json.loads(user_raw) if isinstance(user_raw, str) else user_raw
+                    verified_user_id = int(user_obj.get('id')) if isinstance(user_obj, dict) else None
+                except Exception:
+                    verified_user_id = None
+                if verified_user_id and verified_user_id != user_id:
+                    return jsonify({'ok': False, 'error': 'Forbidden'}), 403
         state_data = timer_states.get(user_id)
 
         if not state_data:
