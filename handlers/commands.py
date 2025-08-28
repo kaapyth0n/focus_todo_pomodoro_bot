@@ -510,7 +510,7 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --- Helper Function for Starting Timers ---
 async def _start_timer_internal(context: ContextTypes.DEFAULT_TYPE, user_id: int, duration_minutes: int, session_type: str, project_name: str = None, task_name: str = None):
     """Internal helper to start a timer job (work or break)."""
-    if user_id in timer_states and timer_states[user_id]['state'] != 'stopped':
+    if user_id in timer_states:
         log.warning(f"Attempted to start timer for user {user_id} but another timer is active.")
         try:
              await context.bot.send_message(chat_id=user_id, text=_(user_id, 'timer_already_active'))
@@ -567,7 +567,7 @@ async def start_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     log.debug(f"/start_timer command received from user {user_id}")
     try:
-        if user_id in timer_states and timer_states[user_id]['state'] != 'stopped':
+        if user_id in timer_states:
             await update.message.reply_text(_(user_id, 'timer_already_active'))
             return
             
@@ -826,60 +826,108 @@ def get_jira_key_from_task_name(task_name):
         return task_name[1:task_name.index("]")]
     return None
 
-# --- Modified stop_timer logic ---
+# --- stop_timer (robust, i18n-aware, custom-duration friendly) ---
 async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id not in timer_states:
-        await update.message.reply_text('No timer is running or paused.')
+    state_data = timer_states.get(user_id)
+    if not state_data:
+        await update.message.reply_text(_(user_id, 'timer_no_timer_active'))
         return
-    # Calculate the final accumulated time
-    if timer_states[user_id]['state'] == 'running':
-        current_time = datetime.now()
-        time_worked = (current_time - timer_states[user_id]['start_time']).total_seconds() / 60
-        timer_states[user_id]['accumulated_time'] += time_worked
-    accumulated_time = timer_states[user_id]['accumulated_time']
-    is_completed = 1 if accumulated_time >= 25 else 0
-    # Get project and task IDs from user_data
-    if user_id in user_data and 'current_project' in user_data[user_id] and 'current_task' in user_data[user_id]:
-        project_id = user_data[user_id]['current_project']
-        task_id = user_data[user_id]['current_task']
-        # Save session to database
-        start_time = timer_states[user_id]['start_time']
-        database.add_pomodoro_session(
-            user_id=user_id,
-            project_id=project_id,
-            task_id=task_id,
-            start_time=start_time,
-            work_duration=accumulated_time,
-            completed=is_completed
-        )
-        # Get project and task names for the message
-        project_name = database.get_project_name(project_id)
-        task_name = database.get_task_name(task_id)
-        message = (
-            f'⏹ Timer stopped.\n\n'
-            f'Project: {project_name}\n'
-            f'Task: {task_name}\n'
-            f'Duration: {accumulated_time:.2f} minutes'
-        )
-        await update.message.reply_text(message)
-        # If Jira-linked, prompt to log work
-        jira_key = get_jira_key_from_task_name(task_name)
-        if jira_key:
-            keyboard = [
-                [InlineKeyboardButton("Yes, log to Jira", callback_data=f"log_jira:{jira_key}:{accumulated_time:.2f}"),
-                 InlineKeyboardButton("No", callback_data="log_jira:skip")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                f"Do you want to log this {accumulated_time:.2f} min session to Jira issue {jira_key}?",
-                reply_markup=reply_markup
+
+    session_type = state_data.get('session_type', 'work')
+    duration_minutes = state_data.get('duration', 25)
+    initial_start_time = state_data.get('initial_start_time') or state_data.get('start_time')
+    job = state_data.get('job')
+
+    try:
+        # Accumulate if running
+        if state_data.get('state') == 'running':
+            current_time = datetime.now()
+            start_time = state_data.get('start_time')
+            if not start_time:
+                log.error(f"Missing start_time in timer state for user {user_id} during stop.")
+                await update.message.reply_text(_(user_id, 'timer_state_inconsistent'))
+                return
+            elapsed = (current_time - start_time).total_seconds() / 60
+            state_data['accumulated_time'] = state_data.get('accumulated_time', 0) + elapsed
+
+        accumulated_time = float(state_data.get('accumulated_time', 0))
+        completed = 1 if accumulated_time >= (duration_minutes - 0.01) else 0
+
+        # Resolve project/task for work sessions
+        project_id = None
+        task_id = None
+        project_name = None
+        task_name = None
+        if session_type == 'work':
+            project_id = database.get_current_project(user_id)
+            task_id = database.get_current_task(user_id)
+            if project_id and task_id:
+                project_name = database.get_project_name(project_id)
+                task_name = database.get_task_name(task_id)
+
+        # Persist
+        try:
+            database.add_pomodoro_session(
+                user_id=user_id,
+                project_id=project_id,
+                task_id=task_id,
+                start_time=initial_start_time or datetime.now(),
+                duration_minutes=accumulated_time,
+                session_type=session_type,
+                completed=completed
             )
-    else:
-        await update.message.reply_text(f'⏹ Timer stopped. Total time worked: {accumulated_time:.2f} minutes.')
-    if 'job' in timer_states[user_id]:
-        timer_states[user_id]['job'].schedule_removal()
-    del timer_states[user_id]
+        except Exception as db_err:
+            log.error(f"DB error while logging stopped session for user {user_id}: {db_err}", exc_info=True)
+
+        # User message
+        try:
+            accumulated_str = f"{accumulated_time:.2f}"
+            if session_type == 'work':
+                if project_id and task_id and project_name and task_name:
+                    await update.message.reply_text(
+                        _(user_id, 'timer_stopped_work', project_name=project_name, task_name=task_name,
+                          accumulated_time=accumulated_str, target_duration=duration_minutes)
+                    )
+                    jira_key = get_jira_key_from_task_name(task_name)
+                    if jira_key:
+                        keyboard = [
+                            [InlineKeyboardButton("Yes, log to Jira", callback_data=f"log_jira:{jira_key}:{accumulated_time:.2f}"),
+                             InlineKeyboardButton("No", callback_data="log_jira:skip")]
+                        ]
+                        await update.message.reply_text(
+                            f"Do you want to log this {accumulated_time:.2f} min session to Jira issue {jira_key}?",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                elif project_id and task_id:
+                    await update.message.reply_text(
+                        _(user_id, 'timer_stopped_work_missing', accumulated_time=accumulated_str, target_duration=duration_minutes)
+                    )
+                else:
+                    await update.message.reply_text(
+                        _(user_id, 'timer_stopped_work_unselected', accumulated_time=accumulated_str, target_duration=duration_minutes)
+                    )
+            else:
+                await update.message.reply_text(
+                    _(user_id, 'timer_stopped_break', accumulated_time=accumulated_str, target_duration=duration_minutes)
+                )
+        except Exception as msg_err:
+            log.error(f"Failed to send stop confirmation to user {user_id}: {msg_err}")
+
+    except Exception as e:
+        log.error(f"Error in stop_timer for user {user_id}: {e}", exc_info=True)
+        try:
+            await update.message.reply_text(_(user_id, 'timer_error_stopping'))
+        except Exception:
+            pass
+    finally:
+        try:
+            if job:
+                job.schedule_removal()
+        except Exception as cancel_err:
+            log.warning(f"Failed to cancel job for user {user_id}: {cancel_err}")
+        if user_id in timer_states:
+            del timer_states[user_id]
 
 # --- Helper Function for Report Titles --- 
 def _get_report_title(user_id: int, report_type: str, report_date_str: str | None, offset: int) -> str:
@@ -1296,7 +1344,7 @@ async def handle_break_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     log.debug(f"User {user_id} triggered 'break' action via text")
     
     # Check if another timer is active before starting break
-    if user_id in timer_states and timer_states[user_id]['state'] != 'stopped':
+    if user_id in timer_states:
         log.warning(f"User {user_id} pressed break button while timer active.")
         # Use translation for the error message
         await update.message.reply_text(_(user_id, 'error_timer_active_break')) 
