@@ -6,6 +6,7 @@ A Telegram bot that helps you manage projects and tasks, track your work session
 
 - **Project & Task Management:**
     - Create projects and tasks.
+    - Rename projects and tasks with duplicate name checking.
     - Interactive prompts if names are omitted from creation commands.
     - Select active projects and tasks for tracking.
     - Mark projects and tasks as "done" (archive) to hide them from main lists.
@@ -55,7 +56,12 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     git clone https://github.com/yourusername/focus-pomodoro-bot
     cd focus-pomodoro-bot
     ```
-2.  Install dependencies:
+2.  Create and activate a virtual environment (recommended):
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+3.  Install dependencies:
     ```bash
     pip install -r requirements.txt
     ```
@@ -165,15 +171,17 @@ Interact with the bot in Telegram using commands or the reply keyboard.
 
 **Project Management:**
 -   `/create_project [\"Project Name\"]`: Create a new project. If name is omitted, the bot will ask for it.
--   `/list_projects`: Show active projects with buttons to select, mark done, or view archived projects.
+-   `/list_projects`: Show active projects with buttons to select, mark done, rename, or view archived projects.
 -   `/select_project \"Project Name\"`: Select an active project by name.
 -   `/delete_project`: Show a list of projects to delete (asks for confirmation).
+-   **Rename**: Click the ✏️ Rename button next to any project in the project list to rename it.
 
 **Task Management:**
 -   `/create_task [\"Task Name\"]`: Add a task to the *currently selected project*. If name is omitted, the bot will ask.
--   `/list_tasks`: Show active tasks in the current project with buttons to select, mark done, or view archived tasks.
+-   `/list_tasks`: Show active tasks in the current project with buttons to select, mark done, rename, or view archived tasks.
 -   `/select_task \"Task Name\"`: Select an active task by name within the current project.
 -   `/delete_task`: Show a list of tasks in the current project to delete (asks for confirmation).
+-   **Rename**: Click the ✏️ Rename button next to any task in the task list to rename it.
 -   **Forward a message** to the bot to create a task from that message in an existing or new project.
 
 **Timer Control:**

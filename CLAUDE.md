@@ -46,7 +46,7 @@ The database schema is automatically created and migrated on bot startup via `da
 
 **config.py** - Environment configuration loader. Defines `timer_states` dict (in-memory timer state keyed by user_id), loads settings from `.env`, and exports constants like `TOKEN`, `DOMAIN_URL`, `SUPPORTED_LANGUAGES`.
 
-**database.py** - SQLite database interface. Tables: `users`, `projects`, `tasks`, `pomodoro_sessions`, `bot_settings`, `forwarded_messages`. All DB functions handle connections and include error logging. Foreign key constraints are enabled (`PRAGMA foreign_keys = ON`).
+**database.py** - SQLite database interface. Tables: `users`, `projects`, `tasks`, `pomodoro_sessions`, `bot_settings`, `forwarded_messages`. All DB functions handle connections and include error logging. Foreign key constraints are enabled (`PRAGMA foreign_keys = ON`). Includes CRUD operations for projects/tasks (create, read, update/rename, delete, archive).
 
 **web_app.py** - Flask web application. Serves:
 - Timer interface at `/timer/<user_id>` (dynamically translated based on user's language preference)
@@ -58,9 +58,9 @@ The Flask app shares `timer_states` dict and receives the Telegram bot's `JobQue
 
 ### Handlers Module
 
-**handlers/commands.py** - All command handlers (`/start`, `/create_project`, `/start_timer`, etc.). Contains conversation handlers for interactive flows (project/task creation, forwarded messages). Handles reply keyboard button presses via `handle_text_message()`.
+**handlers/commands.py** - All command handlers (`/start`, `/create_project`, `/start_timer`, etc.). Contains conversation handlers for interactive flows (project/task creation, renaming, forwarded messages). Handles reply keyboard button presses via `handle_text_message()`.
 
-**handlers/callbacks.py** - Inline button callback handlers for interactive UI (project/task selection, reports, deletion confirmations, Jira issue imports).
+**handlers/callbacks.py** - Inline button callback handlers for interactive UI (project/task selection, renaming, reports, deletion confirmations, Jira issue imports).
 
 **handlers/google_auth.py** - Google OAuth flow and Sheets export. Uses OAuth 2.0 authorization code flow with manual code copy/paste (not automatic redirect). Credentials stored as JSON in `users.google_credentials_json`.
 
@@ -105,6 +105,8 @@ ConversationHandlers in `bot.py` manage multi-step flows:
 - Jira OAuth code entry (`WAITING_JIRA_CODE` state)
 - Project creation with name prompt (`WAITING_PROJECT_NAME` state)
 - Task creation with name prompt (`WAITING_TASK_NAME` state)
+- Project renaming with new name prompt (`WAITING_RENAME_PROJECT_NAME` state)
+- Task renaming with new name prompt (`WAITING_RENAME_TASK_NAME` state)
 - Forwarded message handling (`FORWARDED_MESSAGE_PROJECT_SELECT`, `FORWARDED_MESSAGE_PROJECT_CREATE` states)
 
 All use `/cancel` as fallback command to exit the conversation.
