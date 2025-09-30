@@ -28,6 +28,21 @@ WAITING_PROJECT_NAME, WAITING_TASK_NAME, WAITING_RENAME_PROJECT_NAME, WAITING_RE
 FORWARDED_MESSAGE_PROJECT_SELECT = 1000  # Arbitrary state constant
 FORWARDED_MESSAGE_PROJECT_CREATE = 1001
 
+# --- Helper Functions ---
+def format_minutes_as_mmss(minutes: float) -> str:
+    """Convert decimal minutes to MM:SS format.
+
+    Args:
+        minutes: Time in decimal minutes (e.g., 25.50 for 25 minutes 30 seconds)
+
+    Returns:
+        Time formatted as MM:SS (e.g., "25:30")
+    """
+    total_seconds = int(minutes * 60)
+    mins = total_seconds // 60
+    secs = total_seconds % 60
+    return f"{mins}:{secs:02d}"
+
 # --- Dynamic Reply Keyboard Generation ---
 def get_main_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     """Generates the main ReplyKeyboardMarkup with translated button labels."""
@@ -842,14 +857,14 @@ async def pause_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job = state_data.get('job')
         if job:
             job.schedule_removal()
-            state_data['job'] = None 
+            state_data['job'] = None
             log.debug(f"Removed scheduled job for paused timer (user {user_id}).")
-            
-        # Format accumulated_time to two decimal places for user-facing message
-        accumulated_time_formatted = f"{state_data.get('accumulated_time', 0):.2f}"
+
+        # Format accumulated_time as MM:SS for user-facing message
+        accumulated_time_formatted = format_minutes_as_mmss(state_data.get('accumulated_time', 0))
         await update.message.reply_text(
-            _(user_id, 'timer_paused', 
-              timer_type=timer_type.capitalize(), 
+            _(user_id, 'timer_paused',
+              timer_type=timer_type.capitalize(),
               accumulated_time=accumulated_time_formatted)
         )
         log.info(f"Paused {timer_type} for user {user_id}.")
@@ -899,14 +914,14 @@ async def resume_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job = context.job_queue.run_once(timer_finished, remaining_time_minutes * 60, data=job_data, name=f"timer_{user_id}")
         
         state_data['state'] = 'running'
-        state_data['start_time'] = datetime.now() 
+        state_data['start_time'] = datetime.now()
         state_data['job'] = job
-        
-        # Format remaining_time to two decimal places for user-facing message
-        remaining_time_formatted = f"{remaining_time_minutes:.2f}"
+
+        # Format remaining_time as MM:SS for user-facing message
+        remaining_time_formatted = format_minutes_as_mmss(remaining_time_minutes)
         await update.message.reply_text(
-            _(user_id, 'timer_resumed', 
-              timer_type=session_type.capitalize(), 
+            _(user_id, 'timer_resumed',
+              timer_type=session_type.capitalize(),
               remaining_time=remaining_time_formatted)
         )
         log.info(f"Resumed {session_type.capitalize()} timer for user {user_id}.")
@@ -980,7 +995,7 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # User message
         try:
-            accumulated_str = f"{accumulated_time:.2f}"
+            accumulated_str = format_minutes_as_mmss(accumulated_time)
             if session_type == 'work':
                 if project_id and task_id and project_name and task_name:
                     await update.message.reply_text(

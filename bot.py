@@ -20,7 +20,8 @@ from handlers import jira_auth as jira_auth_handlers
 from web_app import run_flask, set_job_queue
 from handlers.commands import (
     FORWARDED_MESSAGE_PROJECT_SELECT, FORWARDED_MESSAGE_PROJECT_CREATE,
-    handle_forwarded_message, handle_forwarded_project_name
+    handle_forwarded_message, handle_forwarded_project_name,
+    format_minutes_as_mmss
 )
 
 # Shared state (consider moving to a better place later, e.g., context.bot_data or a dedicated module)
@@ -215,7 +216,8 @@ async def pause_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     timer_states[user_id]['state'] = 'paused'
     timer_states[user_id]['job'].schedule_removal()
     del timer_states[user_id]['job']
-    await update.message.reply_text(f'Timer paused. Accumulated time: {timer_states[user_id]["accumulated_time"]:.2f} minutes.')
+    accumulated_time_formatted = format_minutes_as_mmss(timer_states[user_id]["accumulated_time"])
+    await update.message.reply_text(f'Timer paused. Accumulated time: {accumulated_time_formatted}')
 
 async def resume_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -267,17 +269,19 @@ async def stop_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get project and task names for the message
         project_name = database.get_project_name(project_id)
         task_name = database.get_task_name(task_id)
-        
+
+        accumulated_time_formatted = format_minutes_as_mmss(accumulated_time)
         message = (
             f'⏹ Timer stopped.\n\n'
             f'Project: {project_name}\n'
             f'Task: {task_name}\n'
-            f'Duration: {accumulated_time:.2f} minutes'
+            f'Duration: {accumulated_time_formatted}'
         )
         await update.message.reply_text(message)
     else:
         # Generic message if project/task data is missing
-        await update.message.reply_text(f'⏹ Timer stopped. Total time worked: {accumulated_time:.2f} minutes.')
+        accumulated_time_formatted = format_minutes_as_mmss(accumulated_time)
+        await update.message.reply_text(f'⏹ Timer stopped. Total time worked: {accumulated_time_formatted}')
     
     # Cancel the scheduled job if it exists
     if 'job' in timer_states[user_id]:
