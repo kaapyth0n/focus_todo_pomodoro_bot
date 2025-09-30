@@ -424,6 +424,43 @@ def get_project_name(project_id):
         if conn:
             conn.close()
 
+def rename_project(project_id, new_name):
+    """Renames a project. Returns True on success, False on failure."""
+    conn = None
+    renamed = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # Get the user_id for this project to check for duplicates
+        cursor.execute('SELECT user_id FROM projects WHERE project_id = ?', (project_id,))
+        result = cursor.fetchone()
+        if not result:
+            log.warning(f"Attempted to rename non-existent project {project_id}")
+            return False
+        user_id = result[0]
+
+        # Check for duplicate names (case-insensitive)
+        cursor.execute('SELECT project_id FROM projects WHERE user_id = ? AND LOWER(project_name) = LOWER(?) AND project_id != ?',
+                       (user_id, new_name, project_id))
+        if cursor.fetchone():
+            log.info(f"Rename project {project_id} failed: duplicate name '{new_name}' for user {user_id}")
+            return False
+
+        # Update the project name
+        cursor.execute('UPDATE projects SET project_name = ? WHERE project_id = ?', (new_name, project_id))
+        conn.commit()
+        log.info(f"Project {project_id} renamed to '{new_name}' successfully.")
+        renamed = True
+    except sqlite3.Error as e:
+        log.error(f"Database error renaming project {project_id}: {e}")
+        if conn: conn.rollback()
+        renamed = False
+    finally:
+        if conn:
+            conn.close()
+    return renamed
+
 def delete_project(project_id):
     """Deletes a project. Associated tasks/sessions are handled by CASCADE constraints."""
     conn = None
@@ -434,10 +471,10 @@ def delete_project(project_id):
         cursor = conn.cursor()
         # Clear this project as current project for any user
         cursor.execute("UPDATE users SET current_project_id = NULL, current_task_id = NULL WHERE current_project_id = ?", (project_id,))
-        
+
         # Delete the project (CASCADE should handle tasks and sessions)
         cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
-        
+
         conn.commit()
         log.info(f"Project {project_id} deleted successfully (CASCADE handled related data).")
         deleted = True
@@ -504,6 +541,43 @@ def get_task_name(task_id):
         if conn:
             conn.close()
 
+def rename_task(task_id, new_name):
+    """Renames a task. Returns True on success, False on failure."""
+    conn = None
+    renamed = False
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # Get the project_id for this task to check for duplicates
+        cursor.execute('SELECT project_id FROM tasks WHERE task_id = ?', (task_id,))
+        result = cursor.fetchone()
+        if not result:
+            log.warning(f"Attempted to rename non-existent task {task_id}")
+            return False
+        project_id = result[0]
+
+        # Check for duplicate names (case-insensitive) within the same project
+        cursor.execute('SELECT task_id FROM tasks WHERE project_id = ? AND LOWER(task_name) = LOWER(?) AND task_id != ?',
+                       (project_id, new_name, task_id))
+        if cursor.fetchone():
+            log.info(f"Rename task {task_id} failed: duplicate name '{new_name}' in project {project_id}")
+            return False
+
+        # Update the task name
+        cursor.execute('UPDATE tasks SET task_name = ? WHERE task_id = ?', (new_name, task_id))
+        conn.commit()
+        log.info(f"Task {task_id} renamed to '{new_name}' successfully.")
+        renamed = True
+    except sqlite3.Error as e:
+        log.error(f"Database error renaming task {task_id}: {e}")
+        if conn: conn.rollback()
+        renamed = False
+    finally:
+        if conn:
+            conn.close()
+    return renamed
+
 def delete_task(task_id):
     """Deletes a task. Associated sessions are handled by CASCADE constraints."""
     conn = None
@@ -517,7 +591,7 @@ def delete_task(task_id):
 
         # Delete the task (CASCADE should handle sessions)
         cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
-        
+
         conn.commit()
         log.info(f"Task {task_id} deleted successfully (CASCADE handled related sessions).")
         deleted = True

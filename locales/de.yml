@@ -28,6 +28,12 @@ de:
   button_mark_project_done: "✅ Als erledigt markieren"
   button_view_archived_projects: "🗄️ Archivierte Projekte anzeigen"
   button_create_new_project: "➕ Neues Projekt erstellen"
+  button_rename: "✏️ Umbenennen"
+  # Rename Prompts (Projects)
+  rename_project_prompt: "Gib den neuen Namen für Projekt \"%{project_name}\" ein: (Sende /cancel zum Abbrechen)"
+  project_renamed_success: "Projekt erfolgreich in \"%{new_name}\" umbenannt!"
+  rename_project_duplicate: "Ein Projekt mit dem Namen \"%{new_name}\" existiert bereits. Bitte wähle einen anderen Namen."
+  rename_project_invalid_name: "Ungültiger Name. Bitte gib einen Namen an (max. 100 Zeichen). Sende /cancel zum Abbrechen."
   # Generic Errors
   error_accessing_data: "Beim Zugriff auf die Daten ist ein Fehler aufgetreten. Bitte versuche es später erneut."
   # Deletion Prompts
@@ -47,12 +53,18 @@ de:
   button_view_archived_tasks: "🗄️ Archivierte Aufgaben anzeigen"
   button_create_new_task: "➕ Neue Aufgabe erstellen"
   button_back_to_projects: "« Zurück zu Projekten"
+  # Rename Prompts (Tasks)
+  rename_task_prompt: "Gib den neuen Namen für Aufgabe \"%{task_name}\" ein: (Sende /cancel zum Abbrechen)"
+  task_renamed_success: "Aufgabe erfolgreich in \"%{new_name}\" umbenannt!"
+  rename_task_duplicate: "Eine Aufgabe mit dem Namen \"%{new_name}\" existiert bereits in diesem Projekt. Bitte wähle einen anderen Namen."
+  rename_task_invalid_name: "Ungültiger Name. Bitte gib einen Namen an (max. 100 Zeichen). Sende /cancel zum Abbrechen."
   # Deletion Prompts (Tasks)
   delete_task_no_project: "Bitte wähle zuerst ein Projekt aus, bevor du Aufgaben löschst."
   delete_task_none: "Keine Aufgaben im Projekt '%{project_name}' zum Löschen gefunden."
   delete_task_prompt: "Welche Aufgabe in '%{project_name}' soll gelöscht werden? Klicke zum Bestätigen:"
   # Generic Actions
   creation_cancelled: "Erstellung abgebrochen."
+  rename_cancelled: "Umbenennung abgebrochen."
   # Generic Text Fallbacks
   text_the_project: "das Projekt"
   text_selected_project: "Ausgewähltes Projekt"

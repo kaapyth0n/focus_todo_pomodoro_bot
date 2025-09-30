@@ -458,11 +458,62 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not current_project_id:
                 await query.edit_message_text(_(user_id, 'task_create_no_project'))
                 return
-                
+
             project_name = database.get_project_name(current_project_id) or _(user_id, 'text_current_project')
             await query.edit_message_text(_(user_id, 'callback_create_task_prompt', project_name=project_name))
             context.user_data[user_id] = context.user_data.get(user_id, {})
             context.user_data[user_id]['expecting_task_name'] = True
+
+        # --- Rename Project/Task Callbacks ---
+        elif data.startswith("rename_project:"):
+            try:
+                project_id = int(data.split(":")[1])
+                project_name = database.get_project_name(project_id)
+                if not project_name:
+                    log.warning(f"User {user_id} tried to rename non-existent project {project_id}")
+                    await query.edit_message_text(_(user_id, 'error_unexpected'))
+                    return
+
+                log.info(f"User {user_id} initiated rename for project {project_id} ('{project_name}')")
+                # Store project_id in context for the conversation handler
+                context.user_data[user_id] = context.user_data.get(user_id, {})
+                context.user_data[user_id]['renaming_project_id'] = project_id
+
+                # Prompt for new name
+                await query.edit_message_text(_(user_id, 'rename_project_prompt', project_name=project_name))
+                # The conversation handler will pick up the next message
+                return cmd_handlers.WAITING_RENAME_PROJECT_NAME
+            except (IndexError, ValueError) as e:
+                log.warning(f"Error parsing rename_project callback data '{data}' for user {user_id}: {e}")
+                await query.edit_message_text(_(user_id, 'error_unexpected'))
+            except Exception as e:
+                log.error(f"Error handling rename_project callback for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text(_(user_id, 'error_unexpected'))
+
+        elif data.startswith("rename_task:"):
+            try:
+                task_id = int(data.split(":")[1])
+                task_name = database.get_task_name(task_id)
+                if not task_name:
+                    log.warning(f"User {user_id} tried to rename non-existent task {task_id}")
+                    await query.edit_message_text(_(user_id, 'error_unexpected'))
+                    return
+
+                log.info(f"User {user_id} initiated rename for task {task_id} ('{task_name}')")
+                # Store task_id in context for the conversation handler
+                context.user_data[user_id] = context.user_data.get(user_id, {})
+                context.user_data[user_id]['renaming_task_id'] = task_id
+
+                # Prompt for new name
+                await query.edit_message_text(_(user_id, 'rename_task_prompt', task_name=task_name))
+                # The conversation handler will pick up the next message
+                return cmd_handlers.WAITING_RENAME_TASK_NAME
+            except (IndexError, ValueError) as e:
+                log.warning(f"Error parsing rename_task callback data '{data}' for user {user_id}: {e}")
+                await query.edit_message_text(_(user_id, 'error_unexpected'))
+            except Exception as e:
+                log.error(f"Error handling rename_task callback for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text(_(user_id, 'error_unexpected'))
 
         # --- Language Selection Callback ---
         elif data.startswith("set_lang:"):

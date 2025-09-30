@@ -22,7 +22,7 @@ NAME_PROJECT = 0
 NAME_TASK = 1
 
 # --- Conversation Handler States ---
-WAITING_PROJECT_NAME, WAITING_TASK_NAME = range(2)
+WAITING_PROJECT_NAME, WAITING_TASK_NAME, WAITING_RENAME_PROJECT_NAME, WAITING_RENAME_TASK_NAME = range(4)
 
 # --- Forwarded Message Handler ---
 FORWARDED_MESSAGE_PROJECT_SELECT = 1000  # Arbitrary state constant
@@ -204,10 +204,11 @@ async def list_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 button_text = project_name
                 if project_id == current_project_id:
                     button_text = f"➡️ {project_name}" # Indicate current project
-                # Row: [Select Button, Mark Done Button]
+                # Row: [Select Button, Mark Done Button, Rename Button]
                 keyboard.append([
                     InlineKeyboardButton(button_text, callback_data=f"select_project:{project_id}"),
-                    InlineKeyboardButton(_(user_id, 'button_mark_project_done'), callback_data=f"mark_project_done:{project_id}")
+                    InlineKeyboardButton(_(user_id, 'button_mark_project_done'), callback_data=f"mark_project_done:{project_id}"),
+                    InlineKeyboardButton(_(user_id, 'button_rename'), callback_data=f"rename_project:{project_id}")
                 ])
                 
         # Add button to view archived projects
@@ -371,6 +372,102 @@ async def cancel_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_text(_(user_id, 'creation_cancelled'))
     return ConversationHandler.END
 
+# --- Generic Cancel Handler for Rename ---
+async def cancel_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancels the rename conversation."""
+    user_id = update.message.from_user.id
+    log.info(f"User {user_id} cancelled the rename process.")
+    # Clean up context data
+    if user_id in context.user_data:
+        context.user_data[user_id].pop('renaming_project_id', None)
+        context.user_data[user_id].pop('renaming_task_id', None)
+    await update.message.reply_text(_(user_id, 'rename_cancelled'))
+    return ConversationHandler.END
+
+# --- Rename Project Handler ---
+async def handle_rename_project_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the new project name during rename conversation."""
+    user = update.message.from_user
+    user_id = user.id
+    new_name = update.message.text.strip()
+    log.debug(f"Received new project name '{new_name}' from user {user_id}")
+
+    # Validate name
+    if not new_name or len(new_name) > 100:
+        await update.message.reply_text(_(user_id, 'rename_project_invalid_name'))
+        return WAITING_RENAME_PROJECT_NAME  # Stay in same state
+
+    # Get the project_id from context
+    project_id = context.user_data.get(user_id, {}).get('renaming_project_id')
+    if not project_id:
+        log.error(f"No renaming_project_id found in context for user {user_id}")
+        await update.message.reply_text(_(user_id, 'error_unexpected'))
+        return ConversationHandler.END
+
+    # Get old name for logging
+    old_name = database.get_project_name(project_id) or "Unknown"
+
+    # Attempt rename
+    try:
+        success = database.rename_project(project_id, new_name)
+        if success:
+            log.info(f"User {user_id} renamed project {project_id} from '{old_name}' to '{new_name}'")
+            await update.message.reply_text(_(user_id, 'project_renamed_success', new_name=new_name))
+            # Clean up context
+            if user_id in context.user_data:
+                context.user_data[user_id].pop('renaming_project_id', None)
+        else:
+            # Rename failed, likely duplicate
+            await update.message.reply_text(_(user_id, 'rename_project_duplicate', new_name=new_name))
+            return WAITING_RENAME_PROJECT_NAME  # Let user try again
+    except Exception as e:
+        log.error(f"Error renaming project {project_id} for user {user_id}: {e}", exc_info=True)
+        await update.message.reply_text(_(user_id, 'error_unexpected'))
+
+    return ConversationHandler.END
+
+# --- Rename Task Handler ---
+async def handle_rename_task_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the new task name during rename conversation."""
+    user = update.message.from_user
+    user_id = user.id
+    new_name = update.message.text.strip()
+    log.debug(f"Received new task name '{new_name}' from user {user_id}")
+
+    # Validate name
+    if not new_name or len(new_name) > 100:
+        await update.message.reply_text(_(user_id, 'rename_task_invalid_name'))
+        return WAITING_RENAME_TASK_NAME  # Stay in same state
+
+    # Get the task_id from context
+    task_id = context.user_data.get(user_id, {}).get('renaming_task_id')
+    if not task_id:
+        log.error(f"No renaming_task_id found in context for user {user_id}")
+        await update.message.reply_text(_(user_id, 'error_unexpected'))
+        return ConversationHandler.END
+
+    # Get old name for logging
+    old_name = database.get_task_name(task_id) or "Unknown"
+
+    # Attempt rename
+    try:
+        success = database.rename_task(task_id, new_name)
+        if success:
+            log.info(f"User {user_id} renamed task {task_id} from '{old_name}' to '{new_name}'")
+            await update.message.reply_text(_(user_id, 'task_renamed_success', new_name=new_name))
+            # Clean up context
+            if user_id in context.user_data:
+                context.user_data[user_id].pop('renaming_task_id', None)
+        else:
+            # Rename failed, likely duplicate
+            await update.message.reply_text(_(user_id, 'rename_task_duplicate', new_name=new_name))
+            return WAITING_RENAME_TASK_NAME  # Let user try again
+    except Exception as e:
+        log.error(f"Error renaming task {task_id} for user {user_id}: {e}", exc_info=True)
+        await update.message.reply_text(_(user_id, 'error_unexpected'))
+
+    return ConversationHandler.END
+
 async def select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Selects a task by name or lists tasks if no name is given."""
     user_id = update.message.from_user.id
@@ -443,10 +540,11 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 button_text = task_name
                 if task_id == current_task_id:
                      button_text = f"➡️ {task_name}"
-                # Row: [Select Button, Mark Done Button]
+                # Row: [Select Button, Mark Done Button, Rename Button]
                 keyboard.append([
                     InlineKeyboardButton(button_text, callback_data=f"select_task:{task_id}"),
-                    InlineKeyboardButton(_(user_id, 'button_mark_task_done'), callback_data=f"mark_task_done:{task_id}")
+                    InlineKeyboardButton(_(user_id, 'button_mark_task_done'), callback_data=f"mark_task_done:{task_id}"),
+                    InlineKeyboardButton(_(user_id, 'button_rename'), callback_data=f"rename_task:{task_id}")
                 ])
                 
         # Add button to view archived tasks for this project

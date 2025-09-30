@@ -610,6 +610,30 @@ def main():
     )
     application.add_handler(create_task_conv_handler)
 
+    # --- Rename Project Conversation Handler ---
+    rename_project_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_handlers.button_callback, pattern="^rename_project:")],
+        states={
+            cmd_handlers.WAITING_RENAME_PROJECT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_handlers.handle_rename_project_name)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cmd_handlers.cancel_rename)],
+    )
+    application.add_handler(rename_project_conv_handler)
+
+    # --- Rename Task Conversation Handler ---
+    rename_task_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_handlers.button_callback, pattern="^rename_task:")],
+        states={
+            cmd_handlers.WAITING_RENAME_TASK_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_handlers.handle_rename_task_name)
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cmd_handlers.cancel_rename)],
+    )
+    application.add_handler(rename_task_conv_handler)
+
     # --- Forwarded Message Conversation Handler ---
     forwarded_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.FORWARDED, cmd_handlers.handle_forwarded_message)],

@@ -28,6 +28,12 @@ en:
   button_mark_project_done: "✅ Mark Done"
   button_view_archived_projects: "🗄️ View Archived Projects"
   button_create_new_project: "➕ Create New Project"
+  button_rename: "✏️ Rename"
+  # Rename Prompts (Projects)
+  rename_project_prompt: "Enter the new name for project \"%{project_name}\": (Send /cancel to abort)"
+  project_renamed_success: "Project renamed to \"%{new_name}\" successfully!"
+  rename_project_duplicate: "A project with the name \"%{new_name}\" already exists. Please choose a different name."
+  rename_project_invalid_name: "Invalid name. Please provide a name (max 100 chars). Send /cancel to abort."
   # Generic Errors (already added error_db, error_unexpected)
   error_accessing_data: "An error occurred accessing the data. Please try again later."
   # Deletion Prompts
@@ -47,12 +53,18 @@ en:
   button_view_archived_tasks: "🗄️ View Archived Tasks"
   button_create_new_task: "➕ Create New Task"
   button_back_to_projects: "« Back to Projects"
+  # Rename Prompts (Tasks)
+  rename_task_prompt: "Enter the new name for task \"%{task_name}\": (Send /cancel to abort)"
+  task_renamed_success: "Task renamed to \"%{new_name}\" successfully!"
+  rename_task_duplicate: "A task with the name \"%{new_name}\" already exists in this project. Please choose a different name."
+  rename_task_invalid_name: "Invalid name. Please provide a name (max 100 chars). Send /cancel to abort."
   # Deletion Prompts (Tasks)
   delete_task_no_project: "Please select a project first before deleting tasks."
   delete_task_none: "No tasks found in project '%{project_name}' to delete."
   delete_task_prompt: "Which task in '%{project_name}' to delete? Click to confirm:"
   # Generic Actions
   creation_cancelled: "Creation cancelled."
+  rename_cancelled: "Rename cancelled."
   # Generic Text Fallbacks
   text_the_project: "the project"
   text_selected_project: "Selected Project"
