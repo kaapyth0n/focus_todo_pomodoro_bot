@@ -798,7 +798,8 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                                     duration_minutes=duration_minutes)
                 keyboard = [
                     [InlineKeyboardButton(_(user_id, 'timer_button_break_5'), callback_data="start_break:5")],
-                    [InlineKeyboardButton(_(user_id, 'timer_button_break_15'), callback_data="start_break:15")] 
+                    [InlineKeyboardButton(_(user_id, 'timer_button_break_10'), callback_data="start_break:10")],
+                    [InlineKeyboardButton(_(user_id, 'timer_button_break_15'), callback_data="start_break:15")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await context.bot.send_message(chat_id=user_id, text=success_message, reply_markup=reply_markup)

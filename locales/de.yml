@@ -86,6 +86,7 @@ de:
   timer_finished_work_success: "✅ Zeit abgelaufen! Arbeitseinheit abgeschlossen.\n\nProjekt: %{project_name}\nAufgabe: %{task_name}\nDauer: %{duration_minutes} Minuten"
   timer_finished_break_success: "🧘 Pause beendet (%{duration_minutes} Minuten). Zeit für die Arbeit!"
   timer_button_break_5: "☕️ 5 Min. Pause"
+  timer_button_break_10: "☕️ 10 Min. Pause"
   timer_button_break_15: "☕️☕️ 15 Min. Pause"
   timer_error_finishing: "Beim Beenden des Timers ist ein unerwarteter Fehler aufgetreten."
   timer_not_running: "Kein %{timer_type} läuft."
