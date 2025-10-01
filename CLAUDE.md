@@ -180,6 +180,80 @@ Required environment variables (see `.env.example`):
 
 OAuth redirect URIs must be configured in Google Cloud Console and Atlassian Developer Console to match `DOMAIN_URL/oauth2callback` and `DOMAIN_URL/oauth2callback/jira`.
 
+## Dependency Management
+
+### Updating Pinned Packages in `requirements.txt`
+
+This project uses pinned versions for stability. Updates should be performed intentionally and tested thoroughly. **Recommended frequency: every 1-3 months**, or when changelogs flag important changes (especially for `python-telegram-bot` as Telegram APIs evolve).
+
+#### Safe Update Workflow
+
+1. **Prepare Test Environment**
+   ```bash
+   git checkout -b update-deps
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Check for Updates**
+   ```bash
+   pip list --outdated  # Shows available updates
+   ```
+
+3. **Update Packages**
+
+   **Targeted approach (recommended):**
+   ```bash
+   pip install --upgrade python-telegram-bot APScheduler Flask
+   ```
+
+   **Update all packages:**
+   ```bash
+   pip install --upgrade -r requirements.txt --upgrade-strategy eager
+   ```
+
+   **Interactive approach:**
+   ```bash
+   pip install pip-review
+   pip-review --local --interactive
+   ```
+
+4. **Freeze New Versions**
+   ```bash
+   pip freeze > requirements.txt
+   git diff requirements.txt  # Review changes, watch for major version jumps
+   ```
+
+5. **Test Thoroughly**
+   ```bash
+   python bot.py  # Run bot locally
+   # Test job_queue:
+   python -c "from telegram.ext import Application; app = Application.builder().token('dummy').build(); print(app.job_queue is not None)"
+   # Run deploy_to_prod.sh in staging if available
+   ```
+
+6. **Security Check (Optional but Recommended)**
+   ```bash
+   pip install pip-audit safety
+   pip-audit  # Check for known vulnerabilities
+   safety check  # Alternative security scanner
+   ```
+
+7. **Commit and Deploy**
+   ```bash
+   git add requirements.txt
+   git commit -m "Update dependencies to latest stable versions"
+   git checkout main
+   git merge update-deps
+   bash deploy_to_prod.sh  # Script's --upgrade will install new pins
+   ```
+
+#### Tips
+- **Watch for breaking changes**: Review changelogs on PyPI before major version bumps
+- **Looser pins**: For minor updates only, use `~=3.1.0` syntax instead of exact pins (but exact pins keep deploys reproducible)
+- **Priority packages**: Monitor `python-telegram-bot`, `Flask`, `APScheduler` closely
+- **CI/CD**: Consider GitHub Actions + Dependabot for automated updates at scale
+
 ## Troubleshooting
 
 ### Telegram WebApp Authentication Issues
