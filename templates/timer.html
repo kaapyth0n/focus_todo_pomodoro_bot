@@ -126,8 +126,24 @@
         const bodyElem = document.getElementById('body-status');
         const audioElement = document.getElementById('background-audio');
         const muteButton = document.getElementById('mute-button');
+
+        // Telegram WebApp initialization
         const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
         const isMiniApp = !!initData;
+
+        // Debug logging
+        console.log('[DEBUG] Telegram object exists:', !!window.Telegram);
+        console.log('[DEBUG] Telegram.WebApp exists:', !!(window.Telegram && window.Telegram.WebApp));
+        console.log('[DEBUG] initData length:', initData.length);
+        console.log('[DEBUG] initData preview:', initData.substring(0, 100) + (initData.length > 100 ? '...' : ''));
+        console.log('[DEBUG] isMiniApp:', isMiniApp);
+
+        // Signal ready to Telegram
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready();
+            console.log('[DEBUG] Called Telegram.WebApp.ready()');
+        }
+
         const taskBanner = document.getElementById('task-banner');
         const taskText = document.getElementById('task-text');
         const btnPause = document.getElementById('btn-pause');
@@ -457,8 +473,11 @@
         // Controls
         btnPause.addEventListener('click', async () => {
             try {
+                console.log('[DEBUG] Pause button clicked, initData length:', initData.length);
                 const res = await fetch(`/api/timer/${userId}/pause`, { method: 'POST', headers: { 'X-Telegram-Init-Data': initData }});
+                console.log('[DEBUG] Pause response status:', res.status);
                 const j = await res.json();
+                console.log('[DEBUG] Pause response:', j);
                 if (j && j.ok) {
                     updateState('paused', j.remaining_seconds ?? localRemainingSeconds, currentDuration, currentSessionType);
                 } else {
