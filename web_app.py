@@ -66,12 +66,10 @@ def _verify_tg_init_data(init_data: str, max_age_sec: int = 3600) -> dict | None
     """Verify Telegram Mini App initData per spec. Returns parsed dict (without hash) on success, else None."""
     try:
         if not init_data:
-            web_log.warning("Verification failed: initData is empty")
             return None
         parsed = dict(up.parse_qsl(init_data, keep_blank_values=True))
         recv_hash = parsed.pop('hash', None)
         if not recv_hash:
-            web_log.warning("Verification failed: no hash in initData")
             return None
         parts = [f"{k}={parsed[k]}" for k in sorted(parsed.keys())]
         data_check_string = "\n".join(parts)
@@ -79,18 +77,15 @@ def _verify_tg_init_data(init_data: str, max_age_sec: int = 3600) -> dict | None
         # Note: "WebAppData" is the key, bot_token is the message
         secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
         calc_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-        web_log.warning(f"Hash comparison: received={recv_hash[:20]}..., calculated={calc_hash[:20]}...")
         if not hmac.compare_digest(calc_hash, recv_hash):
             web_log.warning("Verification failed: hash mismatch")
             return None
         auth_date = int(parsed.get('auth_date', '0'))
         current_time = int(time.time())
         time_diff = abs(current_time - auth_date)
-        web_log.warning(f"Time check: auth_date={auth_date}, current={current_time}, diff={time_diff}s, max={max_age_sec}s")
         if auth_date <= 0 or time_diff > max_age_sec:
             web_log.warning(f"Verification failed: timestamp too old or invalid (diff={time_diff}s)")
             return None
-        web_log.info("Verification successful")
         return parsed
     except Exception as e:
         web_log.error(f"Error verifying Telegram initData: {e}")
