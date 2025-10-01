@@ -15,11 +15,11 @@ A Telegram bot that helps you manage projects and tasks, track your work session
     - Forward messages to create tasks in existing or new projects.
 - **Pomodoro Timer:**
     - Start customizable work timers (default 25 mins) for selected tasks.
-    - Start short (5 min) or long (15 min) break timers (prompted after work, or via button).
+    - Start short (5 min), medium (10 min), or long (15 min) break timers (prompted after work, or via button).
     - Pause and resume timers.
     - Stop timers early, logging the time worked.
     - View the current timer countdown in a web interface that matches your language preference.
-    - Interactive web timer with sound muting option.
+    - Interactive web timer with control buttons (pause/resume/stop) and sound muting option.
 - **Reporting & Data:**
     - View daily, weekly, and monthly productivity reports with project/task breakdown.
     - Connect to Google Sheets account via OAuth.

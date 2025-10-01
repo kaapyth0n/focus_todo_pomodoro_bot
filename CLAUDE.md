@@ -115,6 +115,22 @@ All use `/cancel` as fallback command to exit the conversation.
 
 Timer control endpoints (`/api/timer/<user_id>/pause`, `/resume`, `/stop`) require Telegram WebApp `initData` verification. The `_verify_tg_init_data()` function validates HMAC signature and timestamp per Telegram Mini App spec. Public status endpoint (`/api/timer_status/<user_id>`) allows unauthenticated access but validates identity if initData is provided.
 
+**CRITICAL**: The HMAC verification uses a specific parameter order mandated by Telegram:
+```python
+# Correct: "WebAppData" is the key, bot TOKEN is the message
+secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+
+# WRONG: Do not swap the parameters (common mistake)
+# secret_key = hmac.new(TOKEN.encode(), b"WebAppData", hashlib.sha256).digest()
+```
+
+The web timer page (`templates/timer.html`) must include the Telegram WebApp SDK script in the `<head>` section:
+```html
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+```
+
+And must call `Telegram.WebApp.ready()` after initialization to signal readiness to Telegram. The `initData` property provides authentication credentials that must be passed in the `X-Telegram-Init-Data` header for all authenticated API requests.
+
 ## Important Patterns
 
 ### Error Handling
@@ -163,3 +179,30 @@ Required environment variables (see `.env.example`):
 - `FLASK_PORT` - Default 5002
 
 OAuth redirect URIs must be configured in Google Cloud Console and Atlassian Developer Console to match `DOMAIN_URL/oauth2callback` and `DOMAIN_URL/oauth2callback/jira`.
+
+## Troubleshooting
+
+### Telegram WebApp Authentication Issues
+
+If timer control buttons return 401 Unauthorized:
+
+1. **Verify SDK is loaded**: Check that `templates/timer.html` includes:
+   ```html
+   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+   ```
+   This must be in the `<head>` section before any JavaScript that uses `window.Telegram.WebApp`.
+
+2. **Check HMAC parameter order**: In `web_app.py`, the `_verify_tg_init_data()` function must use the correct parameter order:
+   ```python
+   secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+   ```
+   The first parameter is always `"WebAppData"`, the second is the bot token. Swapping these is a common mistake that causes hash mismatch.
+
+3. **Debug verification failures**: Temporarily change logging level from `debug` to `warning` in `_verify_tg_init_data()` to see which verification step fails:
+   - "initData is empty" - SDK not loaded or Mini App not properly launched
+   - "hash mismatch" - Wrong HMAC parameter order or incorrect bot token
+   - "timestamp too old" - `auth_date` exceeds `max_age_sec` (default 3600s/1 hour)
+
+4. **Verify Mini App launch method**: `initData` is only populated when launched from inline keyboard buttons with `WebAppInfo`, not from custom keyboards or direct URL access.
+
+5. **Test with browser console**: Check `window.Telegram.WebApp.initData` in the browser console. It should be a non-empty query string. If empty, the issue is with SDK loading or launch method.
