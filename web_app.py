@@ -75,8 +75,9 @@ def _verify_tg_init_data(init_data: str, max_age_sec: int = 3600) -> dict | None
             return None
         parts = [f"{k}={parsed[k]}" for k in sorted(parsed.keys())]
         data_check_string = "\n".join(parts)
-        # secret_key per TMA spec: HMAC_SHA256(bot_token, "WebAppData")
-        secret_key = hmac.new(TOKEN.encode(), b"WebAppData", hashlib.sha256).digest()
+        # secret_key per TMA spec: HMAC_SHA256("WebAppData", bot_token)
+        # Note: "WebAppData" is the key, bot_token is the message
+        secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
         calc_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         web_log.warning(f"Hash comparison: received={recv_hash[:20]}..., calculated={calc_hash[:20]}...")
         if not hmac.compare_digest(calc_hash, recv_hash):
