@@ -500,7 +500,7 @@ def api_stop_timer(user_id: int):
         return jsonify({'ok': False, 'error': 'Internal error'}), 500
 
 @app.post('/api/timer/<int:user_id>/start-break')
-async def api_start_break(user_id: int):
+def api_start_break(user_id: int):
     """Start a break timer with specified duration."""
     ok, verified_user_id, err = _require_tg_user(user_id)
     if not ok:
@@ -512,21 +512,41 @@ async def api_start_break(user_id: int):
         data = request.get_json() if request.is_json else {}
         duration = data.get('duration', 5)  # Default 5 minutes
 
-        # Import the command handler
-        from handlers import commands as cmd_handlers
+        # Stop any existing timer
+        state_data = timer_states.get(user_id)
+        if state_data:
+            # Stop the existing timer
+            job = state_data.get('job')
+            if job:
+                try:
+                    job.schedule_removal()
+                except Exception:
+                    pass
+            try:
+                del timer_states[user_id]
+            except Exception:
+                pass
 
-        # Get the application context
+        # Get the job queue
         job_queue = _get_job_queue()
         if not job_queue:
             return jsonify({'ok': False, 'error': 'Scheduler unavailable'}), 500
 
-        # Create a context object
-        from telegram.ext import Application
-        app = Application.builder().token(TOKEN).build()
-        app._job_queue = job_queue
+        # Schedule the timer completion callback
+        job_data = {'user_id': user_id, 'duration': duration, 'session_type': 'break'}
+        job = job_queue.run_once(cmd_handlers.timer_finished, duration * 60, data=job_data, name=f"timer_{user_id}")
 
-        # Start break timer using the existing function
-        await cmd_handlers.start_break_timer(app, user_id, duration)
+        # Create timer state
+        now = datetime.now()
+        timer_states[user_id] = {
+            'state': 'running',
+            'accumulated_time': 0,
+            'start_time': now,
+            'initial_start_time': now,
+            'duration': duration,
+            'session_type': 'break',
+            'job': job
+        }
 
         return jsonify({'ok': True, 'duration': duration, 'session_type': 'break', 'state': 'running'})
     except Exception as e:
@@ -534,7 +554,7 @@ async def api_start_break(user_id: int):
         return jsonify({'ok': False, 'error': 'Internal error'}), 500
 
 @app.post('/api/timer/<int:user_id>/start-next-pomodoro')
-async def api_start_next_pomodoro(user_id: int):
+def api_start_next_pomodoro(user_id: int):
     """Start the next Pomodoro work session for the current task."""
     ok, verified_user_id, err = _require_tg_user(user_id)
     if not ok:
@@ -553,25 +573,44 @@ async def api_start_next_pomodoro(user_id: int):
         if not project_id or not task_id:
             return jsonify({'ok': False, 'error': 'No active project/task selected'}), 400
 
-        # Import the command handler
-        from handlers import commands as cmd_handlers
+        # Get task info for response
+        task_name = database.get_task_name(task_id)
+        project_name = database.get_project_name(project_id)
+
+        # Stop any existing timer
+        state_data = timer_states.get(user_id)
+        if state_data:
+            job = state_data.get('job')
+            if job:
+                try:
+                    job.schedule_removal()
+                except Exception:
+                    pass
+            try:
+                del timer_states[user_id]
+            except Exception:
+                pass
 
         # Get the job queue
         job_queue = _get_job_queue()
         if not job_queue:
             return jsonify({'ok': False, 'error': 'Scheduler unavailable'}), 500
 
-        # Create a context object
-        from telegram.ext import Application
-        app = Application.builder().token(TOKEN).build()
-        app._job_queue = job_queue
+        # Schedule the timer completion callback
+        job_data = {'user_id': user_id, 'duration': duration, 'session_type': 'work'}
+        job = job_queue.run_once(cmd_handlers.timer_finished, duration * 60, data=job_data, name=f"timer_{user_id}")
 
-        # Start work timer using the existing internal function
-        await cmd_handlers._start_timer_internal(app, user_id, duration, 'work')
-
-        # Get task info for response
-        task_name = database.get_task_name(task_id)
-        project_name = database.get_project_name(project_id)
+        # Create timer state
+        now = datetime.now()
+        timer_states[user_id] = {
+            'state': 'running',
+            'accumulated_time': 0,
+            'start_time': now,
+            'initial_start_time': now,
+            'duration': duration,
+            'session_type': 'work',
+            'job': job
+        }
 
         return jsonify({
             'ok': True,
