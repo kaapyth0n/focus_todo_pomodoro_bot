@@ -599,7 +599,7 @@
                         <div class="stat-value" id="stat-estimated">0<sub style="font-size: 14px;">m</sub></div>
                         <div class="stat-label">{{ _('tm_estimated_time') }}</div>
                     </div>
-                    <div class="stat-item clickable" id="stat-item-todo">
+                    <div class="stat-item" id="stat-item-todo">
                         <div class="stat-value tasks" id="stat-tasks-todo">0</div>
                         <div class="stat-label">{{ _('tm_tasks_to_complete') }}</div>
                     </div>
@@ -607,7 +607,7 @@
                         <div class="stat-value time" id="stat-elapsed">0<sub style="font-size: 14px;">m</sub></div>
                         <div class="stat-label">{{ _('tm_elapsed_time') }}</div>
                     </div>
-                    <div class="stat-item clickable" id="stat-item-completed">
+                    <div class="stat-item" id="stat-item-completed">
                         <div class="stat-value" id="stat-completed">0</div>
                         <div class="stat-label">{{ _('tm_completed_tasks') }}</div>
                     </div>
@@ -712,18 +712,26 @@
 
         // Stat Item Click Handlers
         document.getElementById('stat-item-todo').addEventListener('click', () => {
+            console.log('Todo button clicked', {currentView, currentProjectId, showingCompleted});
             if (currentView === 'project' && currentProjectId) {
                 showingCompleted = false;
                 updateStatButtons();
                 renderTasks();
+                console.log('Switched to showing active tasks');
+            } else {
+                console.log('Not in project view, button disabled');
             }
         });
 
         document.getElementById('stat-item-completed').addEventListener('click', () => {
+            console.log('Completed button clicked', {currentView, currentProjectId, showingCompleted});
             if (currentView === 'project' && currentProjectId) {
                 showingCompleted = true;
                 updateStatButtons();
                 renderTasks();
+                console.log('Switched to showing completed tasks');
+            } else {
+                console.log('Not in project view, button disabled');
             }
         });
 
@@ -732,6 +740,10 @@
             const completedButton = document.getElementById('stat-item-completed');
 
             if (currentView === 'project' && currentProjectId) {
+                // In project view - buttons are clickable
+                todoButton.classList.add('clickable');
+                completedButton.classList.add('clickable');
+
                 if (showingCompleted) {
                     todoButton.classList.remove('active');
                     completedButton.classList.add('active');
@@ -740,8 +752,9 @@
                     completedButton.classList.remove('active');
                 }
             } else {
-                todoButton.classList.remove('active');
-                completedButton.classList.remove('active');
+                // Not in project view - buttons are not clickable
+                todoButton.classList.remove('active', 'clickable');
+                completedButton.classList.remove('active', 'clickable');
             }
         }
 
@@ -1093,6 +1106,7 @@
             await loadProjects();
             await loadTasks();
             await checkTimerStatus();
+            updateStatButtons(); // Initialize button states
 
             // Check timer status periodically
             setInterval(checkTimerStatus, 5000);
