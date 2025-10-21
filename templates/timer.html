@@ -420,14 +420,21 @@
             const stateChanged = currentState !== newState;
             const typeChanged = currentSessionType !== newSessionType;
             const timeChangedSignificantly = Math.abs(localRemainingSeconds - newRemainingSeconds) > 5; // Allow for small drift
-            
+
             // Check if state is changing to finished from something else
             const changingToFinished = newState === 'finished' && currentState !== 'finished';
 
             currentState = newState;
             currentDuration = newDuration || 25; // Use fetched duration or default
             currentSessionType = newSessionType || 'work'; // Use fetched type or default
-            lastDurationSeconds = Math.max(lastDurationSeconds, Math.round(currentDuration * 60));
+
+            // Reset duration tracking when session type changes or new timer starts
+            if (typeChanged || (stateChanged && newState === 'running')) {
+                lastDurationSeconds = Math.round(currentDuration * 60);
+            } else {
+                lastDurationSeconds = Math.max(lastDurationSeconds, Math.round(currentDuration * 60));
+            }
+
             if (taskName) { window.__latestTaskName = taskName; }
 
             // Update local time only if significantly different or state/type changed
