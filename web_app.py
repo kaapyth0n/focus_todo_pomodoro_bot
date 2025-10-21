@@ -499,6 +499,92 @@ def api_stop_timer(user_id: int):
         web_log.error(f"Error stopping timer via API for {user_id}: {e}")
         return jsonify({'ok': False, 'error': 'Internal error'}), 500
 
+@app.post('/api/timer/<int:user_id>/start-break')
+async def api_start_break(user_id: int):
+    """Start a break timer with specified duration."""
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+
+    try:
+        # Get duration from request body
+        data = request.get_json() if request.is_json else {}
+        duration = data.get('duration', 5)  # Default 5 minutes
+
+        # Import the command handler
+        from handlers import commands as cmd_handlers
+
+        # Get the application context
+        job_queue = _get_job_queue()
+        if not job_queue:
+            return jsonify({'ok': False, 'error': 'Scheduler unavailable'}), 500
+
+        # Create a context object
+        from telegram.ext import Application
+        app = Application.builder().token(TOKEN).build()
+        app._job_queue = job_queue
+
+        # Start break timer using the existing function
+        await cmd_handlers.start_break_timer(app, user_id, duration)
+
+        return jsonify({'ok': True, 'duration': duration, 'session_type': 'break', 'state': 'running'})
+    except Exception as e:
+        web_log.error(f"Error starting break for {user_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal error'}), 500
+
+@app.post('/api/timer/<int:user_id>/start-next-pomodoro')
+async def api_start_next_pomodoro(user_id: int):
+    """Start the next Pomodoro work session for the current task."""
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+
+    try:
+        # Get duration from request body or use default 25 minutes
+        data = request.get_json() if request.is_json else {}
+        duration = data.get('duration', 25)
+
+        # Get current project and task
+        project_id = database.get_current_project(user_id)
+        task_id = database.get_current_task(user_id)
+
+        if not project_id or not task_id:
+            return jsonify({'ok': False, 'error': 'No active project/task selected'}), 400
+
+        # Import the command handler
+        from handlers import commands as cmd_handlers
+
+        # Get the job queue
+        job_queue = _get_job_queue()
+        if not job_queue:
+            return jsonify({'ok': False, 'error': 'Scheduler unavailable'}), 500
+
+        # Create a context object
+        from telegram.ext import Application
+        app = Application.builder().token(TOKEN).build()
+        app._job_queue = job_queue
+
+        # Start work timer using the existing internal function
+        await cmd_handlers._start_timer_internal(app, user_id, duration, 'work')
+
+        # Get task info for response
+        task_name = database.get_task_name(task_id)
+        project_name = database.get_project_name(project_id)
+
+        return jsonify({
+            'ok': True,
+            'duration': duration,
+            'session_type': 'work',
+            'state': 'running',
+            'task_name': task_name,
+            'project_name': project_name
+        })
+    except Exception as e:
+        web_log.error(f"Error starting next pomodoro for {user_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal error'}), 500
+
 # --- Task Manager API Endpoints ---
 @app.route('/api/projects/<int:user_id>')
 def api_get_projects(user_id: int):

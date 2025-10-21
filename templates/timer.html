@@ -105,6 +105,18 @@
             <button id="btn-resume" class="primary">{{ _('button_resume') }}</button>
             <button id="btn-stop" class="danger">{{ _('button_stop') }}</button>
         </div>
+
+        <!-- Break Options (shown when work finishes) -->
+        <div class="controls" id="break-options" style="display: none;">
+            <button id="btn-break-5" class="primary">☕️ 5 {{ _('minute') }}</button>
+            <button id="btn-break-10" class="primary">☕️ 10 {{ _('minute') }}</button>
+            <button id="btn-break-15" class="primary">☕️ 15 {{ _('minute') }}</button>
+        </div>
+
+        <!-- Next Pomodoro Option (shown when break finishes) -->
+        <div class="controls" id="next-pomodoro" style="display: none;">
+            <button id="btn-start-next" class="primary">🚀 {{ _('start_next_pomodoro') }}</button>
+        </div>
         
         <!-- Audio Player -->
         <audio id="background-audio" loop preload="auto">
@@ -145,6 +157,14 @@
         const btnResume = document.getElementById('btn-resume');
         const btnStop = document.getElementById('btn-stop');
         const dialProgress = document.getElementById('dial-progress');
+
+        // Break and next pomodoro controls
+        const breakOptions = document.getElementById('break-options');
+        const nextPomodoroDiv = document.getElementById('next-pomodoro');
+        const btnBreak5 = document.getElementById('btn-break-5');
+        const btnBreak10 = document.getElementById('btn-break-10');
+        const btnBreak15 = document.getElementById('btn-break-15');
+        const btnStartNext = document.getElementById('btn-start-next');
         
         // Define hardcoded fallback translations in case server-side translation fails
         const fallbackTranslations = {
@@ -343,6 +363,21 @@
             btnPause.disabled = !isMiniApp || currentState !== 'running';
             btnResume.disabled = !isMiniApp || currentState !== 'paused';
             btnStop.disabled = !isMiniApp || (currentState !== 'running' && currentState !== 'paused');
+
+            // Show/hide control groups based on state and session type
+            if (currentState === 'finished' && currentSessionType === 'work') {
+                // Work finished - show break options
+                breakOptions.style.display = 'flex';
+                nextPomodoroDiv.style.display = 'none';
+            } else if (currentState === 'finished' && currentSessionType === 'break') {
+                // Break finished - show start next pomodoro
+                breakOptions.style.display = 'none';
+                nextPomodoroDiv.style.display = 'flex';
+            } else {
+                // Running, paused, or stopped - hide both
+                breakOptions.style.display = 'none';
+                nextPomodoroDiv.style.display = 'none';
+            }
         }
 
         function stopLocalCountdown() {
@@ -500,6 +535,61 @@
                     web_log.error('Stop failed', j);
                 }
             } catch (e) { web_log.error('Stop error', e); }
+        });
+
+        // Break duration buttons
+        async function startBreak(duration) {
+            try {
+                const res = await fetch(`/api/timer/${userId}/start-break`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Telegram-Init-Data': initData
+                    },
+                    body: JSON.stringify({ duration })
+                });
+                const j = await res.json();
+                if (j && j.ok) {
+                    web_log.debug(`Break started: ${duration} min`);
+                    // The sync will pick up the new state
+                    setTimeout(syncStatus, 500);
+                } else {
+                    web_log.error('Start break failed', j);
+                }
+            } catch (e) {
+                web_log.error('Start break error', e);
+            }
+        }
+
+        btnBreak5.addEventListener('click', () => startBreak(5));
+        btnBreak10.addEventListener('click', () => startBreak(10));
+        btnBreak15.addEventListener('click', () => startBreak(15));
+
+        // Start next pomodoro button
+        btnStartNext.addEventListener('click', async () => {
+            try {
+                const res = await fetch(`/api/timer/${userId}/start-next-pomodoro`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Telegram-Init-Data': initData
+                    },
+                    body: JSON.stringify({ duration: 25 })
+                });
+                const j = await res.json();
+                if (j && j.ok) {
+                    web_log.debug('Next pomodoro started');
+                    if (j.task_name) {
+                        window.__latestTaskName = `${j.project_name}: ${j.task_name}`;
+                    }
+                    // The sync will pick up the new state
+                    setTimeout(syncStatus, 500);
+                } else {
+                    web_log.error('Start next pomodoro failed', j);
+                }
+            } catch (e) {
+                web_log.error('Start next pomodoro error', e);
+            }
         });
 
         // Start initialization

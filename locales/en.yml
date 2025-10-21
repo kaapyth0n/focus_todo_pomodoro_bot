@@ -76,6 +76,8 @@ en:
   open_task_manager: "📋 Open Task Manager"
   task_manager_message: "Click the button below to open the task manager where you can view all your projects and tasks, and start timers."
   task_manager: "Task Manager"
+  start_next_pomodoro: "Start Next Pomodoro"
+  minute: "min"
   # Task Manager UI
   tm_today: "Today"
   tm_tomorrow: "Tomorrow"
