@@ -712,26 +712,18 @@
 
         // Stat Item Click Handlers
         document.getElementById('stat-item-todo').addEventListener('click', () => {
-            console.log('Todo button clicked', {currentView, currentProjectId, showingCompleted});
             if (currentView === 'project' && currentProjectId) {
                 showingCompleted = false;
                 updateStatButtons();
                 renderTasks();
-                console.log('Switched to showing active tasks');
-            } else {
-                console.log('Not in project view, button disabled');
             }
         });
 
         document.getElementById('stat-item-completed').addEventListener('click', () => {
-            console.log('Completed button clicked', {currentView, currentProjectId, showingCompleted});
             if (currentView === 'project' && currentProjectId) {
                 showingCompleted = true;
                 updateStatButtons();
                 renderTasks();
-                console.log('Switched to showing completed tasks');
-            } else {
-                console.log('Not in project view, button disabled');
             }
         });
 
