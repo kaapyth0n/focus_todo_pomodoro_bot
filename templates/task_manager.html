@@ -235,6 +235,27 @@
             transform: scale(0.9);
         }
 
+        .task-checkbox.checked {
+            background-color: #22c55e;
+            border-color: #22c55e;
+        }
+
+        .task-checkbox.checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .task-checkbox.checked:hover {
+            background-color: #16a34a;
+            border-color: #16a34a;
+        }
+
         .task-play-btn {
             width: 32px;
             height: 32px;
@@ -809,6 +830,7 @@
                 div.className = 'task-item';
 
                 const elapsedMinutes = Math.round(task.elapsed_minutes);
+                const isCompleted = task.status === 1;
 
                 div.innerHTML = `
                     <div class="task-play-btn" data-task-id="${task.task_id}">▶</div>
@@ -819,7 +841,7 @@
                             ${elapsedMinutes > 0 ? `<span class="task-time elapsed">⏱ ${elapsedMinutes}m</span>` : ''}
                         </div>
                     </div>
-                    <div class="task-checkbox"></div>
+                    <div class="task-checkbox ${isCompleted ? 'checked' : ''}" data-task-id="${task.task_id}" data-status="${task.status}"></div>
                 `;
 
                 // Play button
@@ -828,10 +850,10 @@
                     startTaskTimer(task.task_id);
                 });
 
-                // Checkbox - mark task as completed
+                // Checkbox - toggle task completion
                 div.querySelector('.task-checkbox').addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    await completeTask(task.task_id);
+                    await toggleTaskCompletion(task.task_id, task.status);
                 });
 
                 taskList.appendChild(div);
@@ -951,10 +973,12 @@
             }
         }
 
-        // Complete Task
-        async function completeTask(taskId) {
+        // Toggle Task Completion
+        async function toggleTaskCompletion(taskId, currentStatus) {
             try {
-                const data = await fetchAPI(`/api/tasks/${userId}/${taskId}/complete`, {
+                // If currently active (0), mark as complete; if complete (1), mark as active
+                const endpoint = currentStatus === 0 ? 'complete' : 'uncomplete';
+                const data = await fetchAPI(`/api/tasks/${userId}/${taskId}/${endpoint}`, {
                     method: 'POST'
                 });
 
@@ -963,7 +987,7 @@
                     await loadTasks();
                 }
             } catch (error) {
-                console.error('Error completing task:', error);
+                console.error('Error toggling task completion:', error);
             }
         }
 

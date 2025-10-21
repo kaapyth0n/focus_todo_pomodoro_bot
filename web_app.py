@@ -659,6 +659,25 @@ def api_complete_task(user_id: int, task_id: int):
         web_log.error(f"Error marking task {task_id} as completed: {e}\n{traceback.format_exc()}")
         return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
+@app.post('/api/tasks/<int:user_id>/<int:task_id>/uncomplete')
+def api_uncomplete_task(user_id: int, task_id: int):
+    """Mark a task as active (uncomplete)."""
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+
+    try:
+        # Mark task as active
+        success = database.mark_task_status(task_id, database.STATUS_ACTIVE)
+        if success:
+            return jsonify({'ok': True, 'task_id': task_id, 'status': database.STATUS_ACTIVE})
+        else:
+            return jsonify({'ok': False, 'error': 'Failed to mark task as active'}), 500
+    except Exception as e:
+        web_log.error(f"Error marking task {task_id} as active: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
 @app.post('/api/tasks/<int:user_id>/<int:task_id>/start')
 def api_start_task_timer(user_id: int, task_id: int):
     """Start a timer for a specific task."""
