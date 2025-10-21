@@ -222,10 +222,17 @@
             margin-right: 12px;
             cursor: pointer;
             flex-shrink: 0;
+            transition: all 0.2s;
+            position: relative;
         }
 
         .task-checkbox:hover {
             border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+
+        .task-checkbox:active {
+            transform: scale(0.9);
         }
 
         .task-play-btn {
@@ -491,43 +498,43 @@
             <div class="sidebar-section categories">
                 <div class="category-item active" data-category="today">
                     <span class="category-icon">☀️</span>
-                    <span class="category-label">Today</span>
+                    <span class="category-label">{{ _('tm_today') }}</span>
                     <span class="category-count" id="today-count">0</span>
                 </div>
                 <div class="category-item" data-category="tomorrow">
                     <span class="category-icon">🌅</span>
-                    <span class="category-label">Tomorrow</span>
+                    <span class="category-label">{{ _('tm_tomorrow') }}</span>
                     <span class="category-count" id="tomorrow-count">0</span>
                 </div>
                 <div class="category-item" data-category="week">
                     <span class="category-icon">📅</span>
-                    <span class="category-label">This Week</span>
+                    <span class="category-label">{{ _('tm_this_week') }}</span>
                     <span class="category-count" id="week-count">0</span>
                 </div>
                 <div class="category-item" data-category="planned">
                     <span class="category-icon">📋</span>
-                    <span class="category-label">Planned</span>
+                    <span class="category-label">{{ _('tm_planned') }}</span>
                     <span class="category-count" id="planned-count">0</span>
                 </div>
                 <div class="category-item" data-category="completed">
                     <span class="category-icon">✓</span>
-                    <span class="category-label">Completed</span>
+                    <span class="category-label">{{ _('tm_completed') }}</span>
                 </div>
                 <div class="category-item" data-category="all">
                     <span class="category-icon">📧</span>
-                    <span class="category-label">Tasks</span>
+                    <span class="category-label">{{ _('tm_all_tasks') }}</span>
                     <span class="category-count" id="all-count">0</span>
                 </div>
             </div>
 
             <div class="sidebar-section projects">
-                <div class="section-title">Projects</div>
+                <div class="section-title">{{ _('tm_projects') }}</div>
                 <div id="projects-list">
                     <!-- Projects will be loaded here -->
                 </div>
                 <div class="add-project-btn" id="add-project-btn">
                     <span style="font-size: 18px; margin-right: 8px;">+</span>
-                    Add Project
+                    {{ _('tm_add_project') }}
                 </div>
             </div>
         </div>
@@ -545,7 +552,7 @@
                             <span></span>
                             <span></span>
                         </button>
-                        <h1 class="project-title" id="view-title" style="margin-bottom: 0;">Today</h1>
+                        <h1 class="project-title" id="view-title" style="margin-bottom: 0;">{{ _('tm_today') }}</h1>
                     </div>
                     <div>
                         <a href="/timer/{{ user_id }}" style="color: #3b82f6; text-decoration: none; font-size: 14px;">⏱️ Timer</a>
@@ -554,30 +561,30 @@
                 <div class="stats-bar" id="stats-bar">
                     <div class="stat-item">
                         <div class="stat-value" id="stat-estimated">0<sub style="font-size: 14px;">m</sub></div>
-                        <div class="stat-label">Estimated Time</div>
+                        <div class="stat-label">{{ _('tm_estimated_time') }}</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-value tasks" id="stat-tasks-todo">0</div>
-                        <div class="stat-label">Tasks to be Completed</div>
+                        <div class="stat-label">{{ _('tm_tasks_to_complete') }}</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-value time" id="stat-elapsed">0<sub style="font-size: 14px;">m</sub></div>
-                        <div class="stat-label">Elapsed Time</div>
+                        <div class="stat-label">{{ _('tm_elapsed_time') }}</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-value" id="stat-completed">0</div>
-                        <div class="stat-label">Completed Tasks</div>
+                        <div class="stat-label">{{ _('tm_completed_tasks') }}</div>
                     </div>
                 </div>
             </div>
 
             <div class="task-input-container">
-                <input type="text" class="task-input" id="task-input" placeholder="Add a task, press Enter to save" />
+                <input type="text" class="task-input" id="task-input" placeholder="{{ _('tm_add_task_placeholder') }}" />
             </div>
 
             <div class="task-list-container">
                 <div id="task-list">
-                    <div class="loading">Loading tasks...</div>
+                    <div class="loading">{{ _('tm_loading') }}</div>
                 </div>
             </div>
         </div>
@@ -592,11 +599,11 @@
     <!-- Create Project Modal -->
     <div class="modal" id="create-project-modal">
         <div class="modal-content">
-            <div class="modal-title">Create New Project</div>
-            <input type="text" class="modal-input" id="project-name-input" placeholder="Project name" />
+            <div class="modal-title">{{ _('tm_create_project_title') }}</div>
+            <input type="text" class="modal-input" id="project-name-input" placeholder="{{ _('tm_project_name_placeholder') }}" />
             <div class="modal-actions">
-                <button class="btn btn-secondary" id="cancel-project-btn">Cancel</button>
-                <button class="btn btn-primary" id="save-project-btn">Create</button>
+                <button class="btn btn-secondary" id="cancel-project-btn">{{ _('tm_cancel') }}</button>
+                <button class="btn btn-primary" id="save-project-btn">{{ _('tm_create') }}</button>
             </div>
         </div>
     </div>
@@ -604,6 +611,17 @@
     <script>
         const userId = {{ user_id }};
         const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
+
+        // Translations
+        const translations = {
+            today: {{ _('tm_today')|tojson }},
+            tomorrow: {{ _('tm_tomorrow')|tojson }},
+            week: {{ _('tm_this_week')|tojson }},
+            planned: {{ _('tm_planned')|tojson }},
+            completed: {{ _('tm_completed')|tojson }},
+            allTasks: {{ _('tm_all_tasks')|tojson }},
+            noTasks: {{ _('tm_no_tasks')|tojson }}
+        };
 
         // Signal ready to Telegram
         if (window.Telegram && window.Telegram.WebApp) {
@@ -745,12 +763,12 @@
                 item.classList.add('active');
 
                 const titles = {
-                    today: 'Today',
-                    tomorrow: 'Tomorrow',
-                    week: 'This Week',
-                    planned: 'Planned',
-                    completed: 'Completed',
-                    all: 'All Tasks'
+                    today: translations.today,
+                    tomorrow: translations.tomorrow,
+                    week: translations.week,
+                    planned: translations.planned,
+                    completed: translations.completed,
+                    all: translations.allTasks
                 };
 
                 document.getElementById('view-title').textContent = titles[category];
@@ -779,7 +797,7 @@
                 taskList.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📝</div>
-                        <div>No tasks yet. Add one above!</div>
+                        <div>${translations.noTasks}</div>
                     </div>
                 `;
                 return;
@@ -808,6 +826,12 @@
                 div.querySelector('.task-play-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
                     startTaskTimer(task.task_id);
+                });
+
+                // Checkbox - mark task as completed
+                div.querySelector('.task-checkbox').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await completeTask(task.task_id);
                 });
 
                 taskList.appendChild(div);
@@ -924,6 +948,22 @@
                 }
             } catch (error) {
                 console.error('Error starting timer:', error);
+            }
+        }
+
+        // Complete Task
+        async function completeTask(taskId) {
+            try {
+                const data = await fetchAPI(`/api/tasks/${userId}/${taskId}/complete`, {
+                    method: 'POST'
+                });
+
+                if (data.ok) {
+                    // Reload tasks to update the UI
+                    await loadTasks();
+                }
+            } catch (error) {
+                console.error('Error completing task:', error);
             }
         }
 
