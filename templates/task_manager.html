@@ -153,6 +153,21 @@
             text-align: center;
         }
 
+        .stat-item.clickable {
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+        }
+
+        .stat-item.clickable:hover {
+            background-color: #f0f0f0;
+        }
+
+        .stat-item.clickable.active {
+            background-color: #e0e7ff;
+        }
+
         .stat-value {
             font-size: 28px;
             font-weight: 600;
@@ -584,7 +599,7 @@
                         <div class="stat-value" id="stat-estimated">0<sub style="font-size: 14px;">m</sub></div>
                         <div class="stat-label">{{ _('tm_estimated_time') }}</div>
                     </div>
-                    <div class="stat-item">
+                    <div class="stat-item clickable" id="stat-item-todo">
                         <div class="stat-value tasks" id="stat-tasks-todo">0</div>
                         <div class="stat-label">{{ _('tm_tasks_to_complete') }}</div>
                     </div>
@@ -592,7 +607,7 @@
                         <div class="stat-value time" id="stat-elapsed">0<sub style="font-size: 14px;">m</sub></div>
                         <div class="stat-label">{{ _('tm_elapsed_time') }}</div>
                     </div>
-                    <div class="stat-item">
+                    <div class="stat-item clickable" id="stat-item-completed">
                         <div class="stat-value" id="stat-completed">0</div>
                         <div class="stat-label">{{ _('tm_completed_tasks') }}</div>
                     </div>
@@ -629,20 +644,26 @@
         </div>
     </div>
 
-    <script>
-        const userId = {{ user_id }};
-        const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
+    <!-- Data attributes for server-side data -->
+    <div id="app-data" 
+         data-user-id="{{ user_id }}"
+         data-translations='{
+             "today": {{ _('tm_today')|tojson }},
+             "tomorrow": {{ _('tm_tomorrow')|tojson }},
+             "week": {{ _('tm_this_week')|tojson }},
+             "planned": {{ _('tm_planned')|tojson }},
+             "completed": {{ _('tm_completed')|tojson }},
+             "allTasks": {{ _('tm_all_tasks')|tojson }},
+             "noTasks": {{ _('tm_no_tasks')|tojson }}
+         }'
+         style="display: none;"></div>
 
-        // Translations
-        const translations = {
-            today: {{ _('tm_today')|tojson }},
-            tomorrow: {{ _('tm_tomorrow')|tojson }},
-            week: {{ _('tm_this_week')|tojson }},
-            planned: {{ _('tm_planned')|tojson }},
-            completed: {{ _('tm_completed')|tojson }},
-            allTasks: {{ _('tm_all_tasks')|tojson }},
-            noTasks: {{ _('tm_no_tasks')|tojson }}
-        };
+    <script>
+        // Get data from HTML data attributes
+        const appData = document.getElementById('app-data');
+        const userId = appData.dataset.userId;
+        const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
+        const translations = JSON.parse(appData.dataset.translations);
 
         // Signal ready to Telegram
         if (window.Telegram && window.Telegram.WebApp) {
@@ -654,6 +675,7 @@
         let currentView = 'today';
         let currentProjectId = null;
         let timerState = null;
+        let showingCompleted = false; // Track if showing completed tasks for current project
 
         // Color palette for projects
         const projectColors = [
@@ -687,6 +709,41 @@
                 }
             }
         });
+
+        // Stat Item Click Handlers
+        document.getElementById('stat-item-todo').addEventListener('click', () => {
+            if (currentView === 'project' && currentProjectId) {
+                showingCompleted = false;
+                updateStatButtons();
+                renderTasks();
+            }
+        });
+
+        document.getElementById('stat-item-completed').addEventListener('click', () => {
+            if (currentView === 'project' && currentProjectId) {
+                showingCompleted = true;
+                updateStatButtons();
+                renderTasks();
+            }
+        });
+
+        function updateStatButtons() {
+            const todoButton = document.getElementById('stat-item-todo');
+            const completedButton = document.getElementById('stat-item-completed');
+
+            if (currentView === 'project' && currentProjectId) {
+                if (showingCompleted) {
+                    todoButton.classList.remove('active');
+                    completedButton.classList.add('active');
+                } else {
+                    todoButton.classList.add('active');
+                    completedButton.classList.remove('active');
+                }
+            } else {
+                todoButton.classList.remove('active');
+                completedButton.classList.remove('active');
+            }
+        }
 
         // API Helpers
         async function fetchAPI(endpoint, options = {}) {
@@ -762,6 +819,7 @@
         function selectProject(projectId, projectName) {
             currentView = 'project';
             currentProjectId = projectId;
+            showingCompleted = false; // Reset to showing active tasks
 
             // Update UI
             document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
@@ -769,6 +827,7 @@
             document.querySelector(`[data-project-id="${projectId}"]`).classList.add('active');
 
             document.getElementById('view-title').textContent = projectName;
+            updateStatButtons();
             renderTasks();
         }
 
@@ -778,6 +837,7 @@
                 const category = item.dataset.category;
                 currentView = category;
                 currentProjectId = null;
+                showingCompleted = false; // Reset when switching to category view
 
                 document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
@@ -793,6 +853,7 @@
                 };
 
                 document.getElementById('view-title').textContent = titles[category];
+                updateStatButtons();
                 renderTasks();
             });
         });
@@ -804,7 +865,9 @@
 
             // Filter by current view
             if (currentView === 'project' && currentProjectId) {
-                filteredTasks = tasks.filter(t => t.project_id === currentProjectId && t.status === 0);
+                // Filter by project and completion status
+                const statusFilter = showingCompleted ? 1 : 0;
+                filteredTasks = tasks.filter(t => t.project_id === currentProjectId && t.status === statusFilter);
             } else if (currentView === 'completed') {
                 filteredTasks = tasks.filter(t => t.status === 1);
             } else if (currentView === 'all') {
@@ -872,21 +935,25 @@
 
         // Update Stats
         function updateStats() {
-            let filteredTasks = tasks;
+            let activeTasks = tasks;
+            let completedTasksCount = 0;
 
             if (currentView === 'project' && currentProjectId) {
-                filteredTasks = tasks.filter(t => t.project_id === currentProjectId && t.status === 0);
+                // Project-specific stats
+                activeTasks = tasks.filter(t => t.project_id === currentProjectId && t.status === 0);
+                completedTasksCount = tasks.filter(t => t.project_id === currentProjectId && t.status === 1).length;
             } else {
-                filteredTasks = tasks.filter(t => t.status === 0);
+                // Global stats
+                activeTasks = tasks.filter(t => t.status === 0);
+                completedTasksCount = tasks.filter(t => t.status === 1).length;
             }
 
-            const totalElapsed = filteredTasks.reduce((sum, t) => sum + t.elapsed_minutes, 0);
-            const completedTasks = tasks.filter(t => t.status === 1).length;
+            const totalElapsed = activeTasks.reduce((sum, t) => sum + t.elapsed_minutes, 0);
 
             document.getElementById('stat-estimated').innerHTML = '0<sub style="font-size: 14px;">m</sub>';
-            document.getElementById('stat-tasks-todo').textContent = filteredTasks.length;
+            document.getElementById('stat-tasks-todo').textContent = activeTasks.length;
             document.getElementById('stat-elapsed').innerHTML = `${Math.round(totalElapsed)}<sub style="font-size: 14px;">m</sub>`;
-            document.getElementById('stat-completed').textContent = completedTasks;
+            document.getElementById('stat-completed').textContent = completedTasksCount;
         }
 
         // Create Task
