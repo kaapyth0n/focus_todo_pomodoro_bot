@@ -217,35 +217,39 @@ def api_timer_status(user_id):
             })
 
         current_state = state_data.get('state', 'stopped') # Default to stopped if state key missing
-        duration_minutes = state_data.get('duration', 25) 
+        duration_minutes = state_data.get('duration', 25)
         session_type = state_data.get('session_type', 'work') # Get session type, default to 'work'
         remaining_seconds = 0
 
         if current_state == 'running':
             start_time = state_data.get('start_time')
             accumulated_time_minutes = state_data.get('accumulated_time', 0)
-            
+
             if not start_time:
                  web_log.error(f"API: Missing start_time for running timer, user {user_id}")
                  return jsonify({'state': 'error', 'message': 'Inconsistent timer state'}), 500
-                 
-            now = datetime.now() 
+
+            now = datetime.now()
             elapsed_seconds = (now - start_time).total_seconds()
             total_worked_minutes = accumulated_time_minutes + (elapsed_seconds / 60)
             remaining_minutes = duration_minutes - total_worked_minutes
-            remaining_seconds = max(0, round(remaining_minutes * 60)) 
+            remaining_seconds = max(0, round(remaining_minutes * 60))
 
         elif current_state == 'paused':
             accumulated_time_minutes = state_data.get('accumulated_time', 0)
             remaining_minutes = duration_minutes - accumulated_time_minutes
             remaining_seconds = max(0, round(remaining_minutes * 60))
-            
+
+        elif current_state == 'finished':
+            # Timer completed - return 0 seconds remaining but preserve session type
+            remaining_seconds = 0
+
         elif current_state == 'stopped':
             accumulated_time_minutes = state_data.get('accumulated_time', 0)
             is_completed = 1 if accumulated_time_minutes >= (duration_minutes - 0.01) else 0
             if is_completed:
                 # If stopped but completed, report 0 seconds remaining
-                remaining_seconds = 0 
+                remaining_seconds = 0
             else:
                 # If stopped early, also report 0 seconds remaining (clock stops)
                 remaining_seconds = 0 

@@ -796,10 +796,12 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                 else:
                     log.warning(f"Work timer finished for {user_id}, but project/task not selected in DB.")
                     await context.bot.send_message(
-                        chat_id=user_id, 
+                        chat_id=user_id,
                         text=_(user_id, 'timer_finished_work_unselected', duration_minutes=duration_minutes)
                     )
-                    del timer_states[user_id] # Cleanup state
+                    # Mark as finished instead of deleting
+                    timer_state_entry['state'] = 'finished'
+                    timer_state_entry['job'] = None
                     return 
             
             # Add session to DB
@@ -836,12 +838,14 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
                         reply_markup=jira_reply_markup
                     )
                 
-            elif session_type == 'break': 
+            elif session_type == 'break':
                  success_message = _(user_id, 'timer_finished_break_success', duration_minutes=duration_minutes)
                  await context.bot.send_message(chat_id=user_id, text=success_message)
 
             log.info(f"Session type '{session_type}' completed and logged for user {user_id}.")
-            del timer_states[user_id] # Cleanup state after processing
+            # Mark as finished instead of deleting, so web app knows what type of session finished
+            timer_state_entry['state'] = 'finished'
+            timer_state_entry['job'] = None  # Clear the job reference
                 
         else:
             log.warning(f"Timer finished job executed for user {user_id}, but state was missing or job outdated.")
@@ -850,8 +854,10 @@ async def timer_finished(context: ContextTypes.DEFAULT_TYPE):
         log.error(f"Unexpected error processing finished timer job for user {user_id}: {e}", exc_info=True)
         try: await context.bot.send_message(chat_id=user_id, text=_(user_id, 'timer_error_finishing'))
         except: pass
-        # Ensure state cleanup even on error
-        if user_id in timer_states: del timer_states[user_id]
+        # Mark as finished even on error, so web app can handle it
+        if user_id in timer_states:
+            timer_states[user_id]['state'] = 'finished'
+            timer_states[user_id]['job'] = None
 
 async def pause_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
