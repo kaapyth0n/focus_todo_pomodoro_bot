@@ -675,6 +675,25 @@ async def _start_timer_internal(context: ContextTypes.DEFAULT_TYPE, user_id: int
         
     return True
 
+# --- Task Manager Command ---
+async def open_task_manager(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Opens the task manager web interface."""
+    user_id = update.message.from_user.id
+    log.debug(f"/tasks command received from user {user_id}")
+
+    try:
+        tasks_url = f'{DOMAIN_URL}/tasks/{user_id}'
+        keyboard = [[InlineKeyboardButton(_(user_id, 'open_task_manager'), web_app=WebAppInfo(url=tasks_url))]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            _(user_id, 'task_manager_message'),
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        log.error(f"Error opening task manager for user {user_id}: {e}")
+        await update.message.reply_text(_(user_id, 'error_unexpected'))
+
 # --- Timer Commands ---
 async def start_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id

@@ -87,6 +87,9 @@
 </head>
 <body id="body-status" class="loading">
     <div class="timer-container">
+        <div style="text-align: right; margin-bottom: 10px;">
+            <a href="/tasks/{{ user_id }}" style="color: #3b82f6; text-decoration: none; font-size: 14px;">📋 Task Manager</a>
+        </div>
         <h1 id="timer-title">{{ _('loading_timer') }}</h1>
         <div id="task-banner" class="task-banner"><span id="task-text"></span></div>
         <div id="status" class="status loading">{{ _('loading') }}</div>

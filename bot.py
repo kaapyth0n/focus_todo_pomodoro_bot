@@ -533,6 +533,7 @@ async def setup_bot_commands(application: Application):
         BotCommand("pause_timer", "Pause current timer"),
         BotCommand("resume_timer", "Resume paused timer"),
         BotCommand("stop_timer", "Stop current timer & log"),
+        BotCommand("tasks", "Open task manager"),
         BotCommand("report", "Show report options"),
         BotCommand("connect_google", "Connect Google Sheets account"),
         BotCommand("export_to_sheets", "Export data to Google Sheets"),
@@ -679,6 +680,7 @@ def main():
     application.add_handler(CommandHandler('pause_timer', cmd_handlers.pause_timer))
     application.add_handler(CommandHandler('resume_timer', cmd_handlers.resume_timer))
     application.add_handler(CommandHandler('stop_timer', cmd_handlers.stop_timer))
+    application.add_handler(CommandHandler('tasks', cmd_handlers.open_task_manager))
     application.add_handler(CommandHandler('report', cmd_handlers.report_command))
     application.add_handler(CommandHandler('delete_project', cmd_handlers.delete_project_command))
     application.add_handler(CommandHandler('delete_task', cmd_handlers.delete_task_command))
