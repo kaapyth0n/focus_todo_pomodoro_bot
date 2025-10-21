@@ -397,8 +397,63 @@
             color: #333;
         }
 
+        /* Hamburger Menu Button */
+        .hamburger-btn {
+            display: none;
+            width: 40px;
+            height: 40px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .hamburger-btn span {
+            display: block;
+            width: 24px;
+            height: 2px;
+            background: #333;
+            margin: 5px 0;
+            transition: 0.3s;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            flex: 1;
+        }
+
+        /* Mobile Overlay */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 99;
+        }
+
+        .sidebar-overlay.active {
+            display: block;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
+            .hamburger-btn {
+                display: block;
+            }
+
             .sidebar {
                 width: 100%;
                 max-width: 280px;
@@ -416,6 +471,15 @@
 
             .main-content {
                 width: 100%;
+            }
+
+            .stats-bar {
+                flex-wrap: wrap;
+                gap: 16px;
+            }
+
+            .stat-item {
+                min-width: 45%;
             }
         }
     </style>
@@ -468,13 +532,25 @@
             </div>
         </div>
 
+        <!-- Mobile Sidebar Overlay -->
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
         <!-- Main Content -->
         <div class="main-content">
             <div class="header">
-                <div style="text-align: right; margin-bottom: 8px;">
-                    <a href="/timer/{{ user_id }}" style="color: #3b82f6; text-decoration: none; font-size: 14px;">⏱️ Timer</a>
+                <div class="header-top">
+                    <div class="header-left">
+                        <button class="hamburger-btn" id="hamburger-btn">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </button>
+                        <h1 class="project-title" id="view-title" style="margin-bottom: 0;">Today</h1>
+                    </div>
+                    <div>
+                        <a href="/timer/{{ user_id }}" style="color: #3b82f6; text-decoration: none; font-size: 14px;">⏱️ Timer</a>
+                    </div>
                 </div>
-                <h1 class="project-title" id="view-title">Today</h1>
                 <div class="stats-bar" id="stats-bar">
                     <div class="stat-item">
                         <div class="stat-value" id="stat-estimated">0<sub style="font-size: 14px;">m</sub></div>
@@ -545,6 +621,33 @@
             '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
             '#10b981', '#06b6d4', '#6366f1', '#14b8a6'
         ];
+
+        // Mobile Sidebar Toggle
+        const hamburgerBtn = document.getElementById('hamburger-btn');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+        function toggleSidebar() {
+            sidebar.classList.toggle('open');
+            sidebarOverlay.classList.toggle('active');
+        }
+
+        function closeSidebar() {
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('active');
+        }
+
+        hamburgerBtn.addEventListener('click', toggleSidebar);
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        // Close sidebar when clicking on a category or project (mobile)
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.category-item') || e.target.closest('.project-item')) {
+                if (window.innerWidth <= 768) {
+                    closeSidebar();
+                }
+            }
+        });
 
         // API Helpers
         async function fetchAPI(endpoint, options = {}) {
