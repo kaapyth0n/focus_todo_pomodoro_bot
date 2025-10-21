@@ -1428,3 +1428,110 @@ def get_forwarded_messages_by_project(project_id):
     finally:
         if conn:
             conn.close()
+
+def get_task_statistics(task_id):
+    """Get statistics for a task (total elapsed time from completed work sessions)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT
+                COALESCE(SUM(work_duration), 0) as total_minutes,
+                COUNT(*) as session_count
+            FROM pomodoro_sessions
+            WHERE task_id = ? AND session_type = 'work'
+        ''', (task_id,))
+        result = cursor.fetchone()
+        if result:
+            return {
+                'total_minutes': float(result[0]) if result[0] else 0.0,
+                'session_count': int(result[1]) if result[1] else 0
+            }
+        return {'total_minutes': 0.0, 'session_count': 0}
+    except sqlite3.Error as e:
+        log.error(f"Database error getting statistics for task {task_id}: {e}")
+        return {'total_minutes': 0.0, 'session_count': 0}
+    finally:
+        if conn:
+            conn.close()
+
+def get_project_statistics(project_id):
+    """Get statistics for a project (total elapsed time and task counts)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get total work time
+        cursor.execute('''
+            SELECT COALESCE(SUM(work_duration), 0) as total_minutes
+            FROM pomodoro_sessions
+            WHERE project_id = ? AND session_type = 'work'
+        ''', (project_id,))
+        time_result = cursor.fetchone()
+        total_minutes = float(time_result[0]) if time_result and time_result[0] else 0.0
+
+        # Get task counts
+        cursor.execute('''
+            SELECT
+                COUNT(*) as total_tasks,
+                SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed_tasks
+            FROM tasks
+            WHERE project_id = ?
+        ''', (STATUS_DONE, project_id))
+        task_result = cursor.fetchone()
+
+        return {
+            'total_minutes': total_minutes,
+            'total_tasks': int(task_result[0]) if task_result and task_result[0] else 0,
+            'completed_tasks': int(task_result[1]) if task_result and task_result[1] else 0,
+            'active_tasks': (int(task_result[0]) - int(task_result[1])) if task_result and task_result[0] and task_result[1] else 0
+        }
+    except sqlite3.Error as e:
+        log.error(f"Database error getting statistics for project {project_id}: {e}")
+        return {'total_minutes': 0.0, 'total_tasks': 0, 'completed_tasks': 0, 'active_tasks': 0}
+    finally:
+        if conn:
+            conn.close()
+
+def get_all_tasks_with_stats(user_id):
+    """Get all tasks for a user with their statistics."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT
+                t.task_id,
+                t.task_name,
+                t.project_id,
+                t.status,
+                p.project_name,
+                COALESCE(SUM(s.work_duration), 0) as elapsed_minutes
+            FROM tasks t
+            JOIN projects p ON t.project_id = p.project_id
+            LEFT JOIN pomodoro_sessions s ON t.task_id = s.task_id AND s.session_type = 'work'
+            WHERE p.user_id = ?
+            GROUP BY t.task_id, t.task_name, t.project_id, t.status, p.project_name
+            ORDER BY t.task_id DESC
+        ''', (user_id,))
+
+        rows = cursor.fetchall()
+        tasks = []
+        for row in rows:
+            tasks.append({
+                'task_id': row[0],
+                'task_name': row[1],
+                'project_id': row[2],
+                'status': row[3],
+                'project_name': row[4],
+                'elapsed_minutes': float(row[5]) if row[5] else 0.0
+            })
+        return tasks
+    except sqlite3.Error as e:
+        log.error(f"Database error getting all tasks with stats for user {user_id}: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()

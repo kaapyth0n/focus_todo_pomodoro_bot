@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ _('task_manager') }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: #fff;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            padding: 12px 16px;
+        }
+
+        .sidebar-section.categories {
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .category-item, .project-item {
+            padding: 8px 12px;
+            margin: 2px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+
+        .category-item:hover, .project-item:hover {
+            background: #f0f0f0;
+        }
+
+        .category-item.active, .project-item.active {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .category-icon {
+            margin-right: 8px;
+            font-size: 18px;
+        }
+
+        .category-label {
+            flex: 1;
+        }
+
+        .category-count {
+            font-size: 12px;
+            color: #999;
+            padding: 2px 8px;
+            background: #f0f0f0;
+            border-radius: 10px;
+        }
+
+        .category-item.active .category-count {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .section-title {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            margin: 12px 0 8px 12px;
+            font-weight: 600;
+        }
+
+        .add-project-btn {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 8px 0;
+            color: #ef4444;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+
+        .add-project-btn:hover {
+            background: #fef2f2;
+        }
+
+        .project-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .project-stats {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .project-item.active .project-stats {
+            color: rgba(255,255,255,0.8);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #fff;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .project-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .stats-bar {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .stat-value.time {
+            color: #ef4444;
+        }
+
+        .stat-value.tasks {
+            color: #ef4444;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        /* Task List */
+        .task-list-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+        }
+
+        .task-input-container {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #fff;
+        }
+
+        .task-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .task-input:focus {
+            border-color: #3b82f6;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            background: #fff;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: box-shadow 0.2s;
+        }
+
+        .task-item:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .task-checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #d0d0d0;
+            border-radius: 50%;
+            margin-right: 12px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .task-checkbox:hover {
+            border-color: #3b82f6;
+        }
+
+        .task-play-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #ef4444;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            cursor: pointer;
+            flex-shrink: 0;
+            font-size: 12px;
+        }
+
+        .task-play-btn:hover {
+            background: #dc2626;
+        }
+
+        .task-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .task-name {
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .task-meta {
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .task-time {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .task-time.elapsed {
+            color: #ef4444;
+        }
+
+        .task-due-date {
+            margin-left: auto;
+            color: #999;
+            font-size: 12px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        /* Timer Widget (Floating) */
+        .timer-widget {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 80px;
+            height: 80px;
+            background: #1e293b;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+
+        .timer-widget.running {
+            background: #ef4444;
+        }
+
+        .timer-widget-time {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .timer-widget-play {
+            color: white;
+            font-size: 24px;
+        }
+
+        /* Modal for Create Project */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100%;
+                max-width: 280px;
+                position: fixed;
+                left: -280px;
+                top: 0;
+                height: 100vh;
+                z-index: 100;
+                transition: left 0.3s;
+            }
+
+            .sidebar.open {
+                left: 0;
+            }
+
+            .main-content {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-section categories">
+                <div class="category-item active" data-category="today">
+                    <span class="category-icon">☀️</span>
+                    <span class="category-label">Today</span>
+                    <span class="category-count" id="today-count">0</span>
+                </div>
+                <div class="category-item" data-category="tomorrow">
+                    <span class="category-icon">🌅</span>
+                    <span class="category-label">Tomorrow</span>
+                    <span class="category-count" id="tomorrow-count">0</span>
+                </div>
+                <div class="category-item" data-category="week">
+                    <span class="category-icon">📅</span>
+                    <span class="category-label">This Week</span>
+                    <span class="category-count" id="week-count">0</span>
+                </div>
+                <div class="category-item" data-category="planned">
+                    <span class="category-icon">📋</span>
+                    <span class="category-label">Planned</span>
+                    <span class="category-count" id="planned-count">0</span>
+                </div>
+                <div class="category-item" data-category="completed">
+                    <span class="category-icon">✓</span>
+                    <span class="category-label">Completed</span>
+                </div>
+                <div class="category-item" data-category="all">
+                    <span class="category-icon">📧</span>
+                    <span class="category-label">Tasks</span>
+                    <span class="category-count" id="all-count">0</span>
+                </div>
+            </div>
+
+            <div class="sidebar-section projects">
+                <div class="section-title">Projects</div>
+                <div id="projects-list">
+                    <!-- Projects will be loaded here -->
+                </div>
+                <div class="add-project-btn" id="add-project-btn">
+                    <span style="font-size: 18px; margin-right: 8px;">+</span>
+                    Add Project
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="header">
+                <h1 class="project-title" id="view-title">Today</h1>
+                <div class="stats-bar" id="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-estimated">0<sub style="font-size: 14px;">m</sub></div>
+                        <div class="stat-label">Estimated Time</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value tasks" id="stat-tasks-todo">0</div>
+                        <div class="stat-label">Tasks to be Completed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value time" id="stat-elapsed">0<sub style="font-size: 14px;">m</sub></div>
+                        <div class="stat-label">Elapsed Time</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-completed">0</div>
+                        <div class="stat-label">Completed Tasks</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="task-input-container">
+                <input type="text" class="task-input" id="task-input" placeholder="Add a task, press Enter to save" />
+            </div>
+
+            <div class="task-list-container">
+                <div id="task-list">
+                    <div class="loading">Loading tasks...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Timer Widget -->
+    <div class="timer-widget" id="timer-widget">
+        <div class="timer-widget-time" id="widget-time" style="display: none;">25</div>
+        <div class="timer-widget-play" id="widget-play">▶</div>
+    </div>
+
+    <!-- Create Project Modal -->
+    <div class="modal" id="create-project-modal">
+        <div class="modal-content">
+            <div class="modal-title">Create New Project</div>
+            <input type="text" class="modal-input" id="project-name-input" placeholder="Project name" />
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancel-project-btn">Cancel</button>
+                <button class="btn btn-primary" id="save-project-btn">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const userId = {{ user_id }};
+        const initData = window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.initData || "") : "";
+
+        // Signal ready to Telegram
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready();
+        }
+
+        let projects = [];
+        let tasks = [];
+        let currentView = 'today';
+        let currentProjectId = null;
+        let timerState = null;
+
+        // Color palette for projects
+        const projectColors = [
+            '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
+            '#10b981', '#06b6d4', '#6366f1', '#14b8a6'
+        ];
+
+        // API Helpers
+        async function fetchAPI(endpoint, options = {}) {
+            const headers = {
+                'X-Telegram-Init-Data': initData,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            const response = await fetch(endpoint, {
+                ...options,
+                headers
+            });
+
+            return response.json();
+        }
+
+        // Load Projects
+        async function loadProjects() {
+            try {
+                const data = await fetchAPI(`/api/projects/${userId}`);
+                if (data.ok) {
+                    projects = data.projects;
+                    renderProjects();
+                }
+            } catch (error) {
+                console.error('Error loading projects:', error);
+            }
+        }
+
+        // Load Tasks
+        async function loadTasks() {
+            try {
+                const data = await fetchAPI(`/api/projects/${userId}/tasks`);
+                if (data.ok) {
+                    tasks = data.tasks;
+                    renderTasks();
+                    updateCounts();
+                }
+            } catch (error) {
+                console.error('Error loading tasks:', error);
+            }
+        }
+
+        // Render Projects
+        function renderProjects() {
+            const projectsList = document.getElementById('projects-list');
+            projectsList.innerHTML = '';
+
+            projects.forEach((project, index) => {
+                const color = projectColors[index % projectColors.length];
+                const div = document.createElement('div');
+                div.className = 'project-item';
+                div.dataset.projectId = project.project_id;
+
+                div.innerHTML = `
+                    <div style="display: flex; align-items: center; flex: 1;">
+                        <div class="project-dot" style="background: ${color};"></div>
+                        <span>${project.project_name}</span>
+                    </div>
+                    <div class="project-stats">${Math.round(project.total_minutes)}m ${project.total_tasks}</div>
+                `;
+
+                div.addEventListener('click', () => {
+                    selectProject(project.project_id, project.project_name);
+                });
+
+                projectsList.appendChild(div);
+            });
+        }
+
+        // Select Project
+        function selectProject(projectId, projectName) {
+            currentView = 'project';
+            currentProjectId = projectId;
+
+            // Update UI
+            document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
+            document.querySelector(`[data-project-id="${projectId}"]`).classList.add('active');
+
+            document.getElementById('view-title').textContent = projectName;
+            renderTasks();
+        }
+
+        // Select Category
+        document.querySelectorAll('.category-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const category = item.dataset.category;
+                currentView = category;
+                currentProjectId = null;
+
+                document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+
+                const titles = {
+                    today: 'Today',
+                    tomorrow: 'Tomorrow',
+                    week: 'This Week',
+                    planned: 'Planned',
+                    completed: 'Completed',
+                    all: 'All Tasks'
+                };
+
+                document.getElementById('view-title').textContent = titles[category];
+                renderTasks();
+            });
+        });
+
+        // Render Tasks
+        function renderTasks() {
+            const taskList = document.getElementById('task-list');
+            let filteredTasks = tasks;
+
+            // Filter by current view
+            if (currentView === 'project' && currentProjectId) {
+                filteredTasks = tasks.filter(t => t.project_id === currentProjectId && t.status === 0);
+            } else if (currentView === 'completed') {
+                filteredTasks = tasks.filter(t => t.status === 1);
+            } else if (currentView === 'all') {
+                filteredTasks = tasks.filter(t => t.status === 0);
+            } else {
+                // For now, show all active tasks
+                filteredTasks = tasks.filter(t => t.status === 0);
+            }
+
+            if (filteredTasks.length === 0) {
+                taskList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <div>No tasks yet. Add one above!</div>
+                    </div>
+                `;
+                return;
+            }
+
+            taskList.innerHTML = '';
+            filteredTasks.forEach(task => {
+                const div = document.createElement('div');
+                div.className = 'task-item';
+
+                const elapsedMinutes = Math.round(task.elapsed_minutes);
+
+                div.innerHTML = `
+                    <div class="task-play-btn" data-task-id="${task.task_id}">▶</div>
+                    <div class="task-content">
+                        <div class="task-name">${task.task_name}</div>
+                        <div class="task-meta">
+                            <span>${task.project_name}</span>
+                            ${elapsedMinutes > 0 ? `<span class="task-time elapsed">⏱ ${elapsedMinutes}m</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="task-checkbox"></div>
+                `;
+
+                // Play button
+                div.querySelector('.task-play-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    startTaskTimer(task.task_id);
+                });
+
+                taskList.appendChild(div);
+            });
+
+            updateStats();
+        }
+
+        // Update Counts
+        function updateCounts() {
+            const activeTasks = tasks.filter(t => t.status === 0);
+            document.getElementById('today-count').textContent = activeTasks.length;
+            document.getElementById('all-count').textContent = activeTasks.length;
+            document.getElementById('planned-count').textContent = activeTasks.length;
+        }
+
+        // Update Stats
+        function updateStats() {
+            let filteredTasks = tasks;
+
+            if (currentView === 'project' && currentProjectId) {
+                filteredTasks = tasks.filter(t => t.project_id === currentProjectId && t.status === 0);
+            } else {
+                filteredTasks = tasks.filter(t => t.status === 0);
+            }
+
+            const totalElapsed = filteredTasks.reduce((sum, t) => sum + t.elapsed_minutes, 0);
+            const completedTasks = tasks.filter(t => t.status === 1).length;
+
+            document.getElementById('stat-estimated').innerHTML = '0<sub style="font-size: 14px;">m</sub>';
+            document.getElementById('stat-tasks-todo').textContent = filteredTasks.length;
+            document.getElementById('stat-elapsed').innerHTML = `${Math.round(totalElapsed)}<sub style="font-size: 14px;">m</sub>`;
+            document.getElementById('stat-completed').textContent = completedTasks;
+        }
+
+        // Create Task
+        document.getElementById('task-input').addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                const taskName = e.target.value.trim();
+                if (!taskName) return;
+
+                let projectId = currentProjectId;
+
+                // If no project selected, use first project or create one
+                if (!projectId) {
+                    if (projects.length === 0) {
+                        alert('Please create a project first!');
+                        return;
+                    }
+                    projectId = projects[0].project_id;
+                }
+
+                try {
+                    const data = await fetchAPI(`/api/tasks/${userId}/create`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            task_name: taskName,
+                            project_id: projectId
+                        })
+                    });
+
+                    if (data.ok) {
+                        e.target.value = '';
+                        await loadTasks();
+                    }
+                } catch (error) {
+                    console.error('Error creating task:', error);
+                }
+            }
+        });
+
+        // Create Project
+        document.getElementById('add-project-btn').addEventListener('click', () => {
+            document.getElementById('create-project-modal').classList.add('active');
+            document.getElementById('project-name-input').focus();
+        });
+
+        document.getElementById('cancel-project-btn').addEventListener('click', () => {
+            document.getElementById('create-project-modal').classList.remove('active');
+            document.getElementById('project-name-input').value = '';
+        });
+
+        document.getElementById('save-project-btn').addEventListener('click', async () => {
+            const projectName = document.getElementById('project-name-input').value.trim();
+            if (!projectName) return;
+
+            try {
+                const data = await fetchAPI(`/api/projects/${userId}/create`, {
+                    method: 'POST',
+                    body: JSON.stringify({ project_name: projectName })
+                });
+
+                if (data.ok) {
+                    document.getElementById('create-project-modal').classList.remove('active');
+                    document.getElementById('project-name-input').value = '';
+                    await loadProjects();
+                }
+            } catch (error) {
+                console.error('Error creating project:', error);
+            }
+        });
+
+        // Start Timer for Task
+        async function startTaskTimer(taskId) {
+            try {
+                const data = await fetchAPI(`/api/tasks/${userId}/${taskId}/start`, {
+                    method: 'POST',
+                    body: JSON.stringify({ duration: 25 })
+                });
+
+                if (data.ok) {
+                    // Redirect to timer page or update UI
+                    window.location.href = `/timer/${userId}`;
+                }
+            } catch (error) {
+                console.error('Error starting timer:', error);
+            }
+        }
+
+        // Timer Widget - Check Status
+        async function checkTimerStatus() {
+            try {
+                const response = await fetch(`/api/timer_status/${userId}`, {
+                    headers: { 'X-Telegram-Init-Data': initData }
+                });
+                const data = await response.json();
+
+                if (data.state === 'running') {
+                    document.getElementById('timer-widget').classList.add('running');
+                    document.getElementById('widget-play').style.display = 'none';
+                    document.getElementById('widget-time').style.display = 'block';
+
+                    const minutes = Math.floor(data.remaining_seconds / 60);
+                    document.getElementById('widget-time').textContent = minutes;
+                } else {
+                    document.getElementById('timer-widget').classList.remove('running');
+                    document.getElementById('widget-play').style.display = 'block';
+                    document.getElementById('widget-time').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error checking timer status:', error);
+            }
+        }
+
+        // Timer widget click
+        document.getElementById('timer-widget').addEventListener('click', () => {
+            window.location.href = `/timer/${userId}`;
+        });
+
+        // Initialize
+        async function init() {
+            await loadProjects();
+            await loadTasks();
+            await checkTimerStatus();
+
+            // Check timer status periodically
+            setInterval(checkTimerStatus, 5000);
+        }
+
+        init();
+    </script>
+</body>
+</html>

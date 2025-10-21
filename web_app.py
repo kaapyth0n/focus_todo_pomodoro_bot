@@ -173,6 +173,19 @@ def timer_page(user_id):
         # Return a generic error page
         return "<html><body><h1>Server Error</h1><p>Sorry, an error occurred loading the timer page.</p></body></html>", 500
 
+@app.route('/tasks/<int:user_id>')
+def task_manager_page(user_id):
+    web_log.debug(f"Request received for task manager page for user {user_id}")
+    # Set user_id in Flask global g for babel localeselector
+    g.user_id = user_id
+    try:
+        # Pass the user_id to the template
+        return render_template('task_manager.html', user_id=user_id)
+    except Exception as e:
+        web_log.error(f"Error rendering task manager page for user {user_id}: {e}\\n{traceback.format_exc()}")
+        # Return a generic error page
+        return "<html><body><h1>Server Error</h1><p>Sorry, an error occurred loading the task manager page.</p></body></html>", 500
+
 @app.route('/api/timer_status/<int:user_id>')
 def api_timer_status(user_id):
     web_log.debug(f"API request for timer status for user {user_id}")
@@ -485,3 +498,219 @@ def api_stop_timer(user_id: int):
     except Exception as e:
         web_log.error(f"Error stopping timer via API for {user_id}: {e}")
         return jsonify({'ok': False, 'error': 'Internal error'}), 500
+
+# --- Task Manager API Endpoints ---
+@app.route('/api/projects/<int:user_id>')
+def api_get_projects(user_id: int):
+    """Get all projects for a user with statistics."""
+    web_log.debug(f"API request for projects list for user {user_id}")
+    try:
+        # Optionally verify auth - for now allow public read
+        init_data = request.headers.get('X-Telegram-Init-Data') or request.args.get('initData')
+        if init_data:
+            parsed = _verify_tg_init_data(init_data)
+            if parsed:
+                try:
+                    import json
+                    user_raw = parsed.get('user')
+                    user_obj = json.loads(user_raw) if isinstance(user_raw, str) else user_raw
+                    verified_user_id = int(user_obj.get('id')) if isinstance(user_obj, dict) else None
+                except Exception:
+                    verified_user_id = None
+                if verified_user_id and verified_user_id != user_id:
+                    return jsonify({'ok': False, 'error': 'Forbidden'}), 403
+
+        projects = database.get_projects(user_id, database.STATUS_ACTIVE)
+        result = []
+        for project in projects:
+            project_id = project[0]
+            project_name = project[1]
+            stats = database.get_project_statistics(project_id)
+            result.append({
+                'project_id': project_id,
+                'project_name': project_name,
+                'total_minutes': stats['total_minutes'],
+                'total_tasks': stats['total_tasks'],
+                'completed_tasks': stats['completed_tasks'],
+                'active_tasks': stats['active_tasks']
+            })
+
+        return jsonify({'ok': True, 'projects': result})
+    except Exception as e:
+        web_log.error(f"Error in API endpoint /api/projects/{user_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+@app.route('/api/projects/<int:user_id>/tasks')
+def api_get_all_tasks(user_id: int):
+    """Get all tasks for a user with statistics."""
+    web_log.debug(f"API request for all tasks for user {user_id}")
+    try:
+        # Optionally verify auth
+        init_data = request.headers.get('X-Telegram-Init-Data') or request.args.get('initData')
+        if init_data:
+            parsed = _verify_tg_init_data(init_data)
+            if parsed:
+                try:
+                    import json
+                    user_raw = parsed.get('user')
+                    user_obj = json.loads(user_raw) if isinstance(user_raw, str) else user_raw
+                    verified_user_id = int(user_obj.get('id')) if isinstance(user_obj, dict) else None
+                except Exception:
+                    verified_user_id = None
+                if verified_user_id and verified_user_id != user_id:
+                    return jsonify({'ok': False, 'error': 'Forbidden'}), 403
+
+        tasks = database.get_all_tasks_with_stats(user_id)
+        return jsonify({'ok': True, 'tasks': tasks})
+    except Exception as e:
+        web_log.error(f"Error in API endpoint /api/projects/{user_id}/tasks: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+@app.route('/api/projects/<int:user_id>/<int:project_id>/tasks')
+def api_get_project_tasks(user_id: int, project_id: int):
+    """Get tasks for a specific project."""
+    web_log.debug(f"API request for tasks for project {project_id}")
+    try:
+        tasks = database.get_tasks(project_id, database.STATUS_ACTIVE)
+        result = []
+        for task in tasks:
+            task_id = task[0]
+            task_name = task[1]
+            stats = database.get_task_statistics(task_id)
+            result.append({
+                'task_id': task_id,
+                'task_name': task_name,
+                'project_id': project_id,
+                'elapsed_minutes': stats['total_minutes'],
+                'session_count': stats['session_count']
+            })
+
+        return jsonify({'ok': True, 'tasks': result})
+    except Exception as e:
+        web_log.error(f"Error in API endpoint /api/projects/{user_id}/{project_id}/tasks: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+@app.post('/api/projects/<int:user_id>/create')
+def api_create_project(user_id: int):
+    """Create a new project."""
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+
+    try:
+        data = request.get_json()
+        project_name = data.get('project_name', '').strip()
+        if not project_name:
+            return jsonify({'ok': False, 'error': 'Project name is required'}), 400
+
+        project_id = database.add_project(user_id, project_name)
+        if project_id:
+            return jsonify({'ok': True, 'project_id': project_id, 'project_name': project_name})
+        else:
+            return jsonify({'ok': False, 'error': 'Failed to create project'}), 500
+    except Exception as e:
+        web_log.error(f"Error creating project for user {user_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+@app.post('/api/tasks/<int:user_id>/create')
+def api_create_task(user_id: int):
+    """Create a new task."""
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+
+    try:
+        data = request.get_json()
+        task_name = data.get('task_name', '').strip()
+        project_id = data.get('project_id')
+
+        if not task_name:
+            return jsonify({'ok': False, 'error': 'Task name is required'}), 400
+        if not project_id:
+            return jsonify({'ok': False, 'error': 'Project ID is required'}), 400
+
+        task_id = database.add_task(project_id, task_name)
+        if task_id:
+            return jsonify({'ok': True, 'task_id': task_id, 'task_name': task_name})
+        else:
+            return jsonify({'ok': False, 'error': 'Failed to create task'}), 500
+    except Exception as e:
+        web_log.error(f"Error creating task for user {user_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
+
+@app.post('/api/tasks/<int:user_id>/<int:task_id>/start')
+def api_start_task_timer(user_id: int, task_id: int):
+    """Start a timer for a specific task."""
+    ok, verified_user_id, err = _require_tg_user(user_id)
+    if not ok:
+        code = 403 if verified_user_id else 401
+        return jsonify({'ok': False, 'error': err}), code
+
+    try:
+        # Get task and project info
+        task_name = database.get_task_name(task_id)
+        if not task_name:
+            return jsonify({'ok': False, 'error': 'Task not found'}), 404
+
+        # Get project_id from task
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT project_id FROM tasks WHERE task_id = ?', (task_id,))
+        result = cursor.fetchone()
+        conn.close()
+
+        if not result:
+            return jsonify({'ok': False, 'error': 'Task not found'}), 404
+
+        project_id = result[0]
+
+        # Set current project and task
+        database.set_current_project(user_id, project_id)
+        database.set_current_task(user_id, task_id)
+
+        # Get duration from request or use default
+        data = request.get_json() if request.is_json else {}
+        duration = data.get('duration', 25)  # Default 25 minutes
+
+        # Stop any existing timer
+        if user_id in timer_states:
+            try:
+                state_data = timer_states[user_id]
+                job = state_data.get('job')
+                if job:
+                    job.schedule_removal()
+            except Exception:
+                pass
+            del timer_states[user_id]
+
+        # Start new timer
+        job_queue = _get_job_queue()
+        if not job_queue:
+            return jsonify({'ok': False, 'error': 'Scheduler unavailable'}), 500
+
+        timer_data = {'user_id': user_id, 'duration': duration, 'session_type': 'work'}
+        job = job_queue.run_once(cmd_handlers.timer_finished, duration * 60, data=timer_data, name=f"timer_{user_id}")
+
+        timer_states[user_id] = {
+            'state': 'running',
+            'start_time': datetime.now(),
+            'initial_start_time': datetime.now(),
+            'accumulated_time': 0,
+            'duration': duration,
+            'session_type': 'work',
+            'job': job
+        }
+
+        return jsonify({
+            'ok': True,
+            'state': 'running',
+            'duration': duration,
+            'task_id': task_id,
+            'task_name': task_name,
+            'project_id': project_id
+        })
+    except Exception as e:
+        web_log.error(f"Error starting timer for task {task_id}: {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
