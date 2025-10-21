@@ -19,11 +19,29 @@ systemctl stop $SERVICE || true
 # Update codebase
 echo "Pulling latest code from main branch..."
 cd $APP_DIR
-git pull origin main
+
+# Check if there are any local changes that would be lost
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Warning: Local changes detected. These will be discarded."
+    echo "Current status:"
+    git status --short
+fi
+
+# Reset to remote main branch, discarding any local changes
+echo "Resetting to remote main branch..."
+git fetch origin main
 if [ $? -ne 0 ]; then
-    echo "Git pull failed! Aborting."
+    echo "Git fetch failed! Aborting."
     exit 1
 fi
+
+git reset --hard origin/main
+if [ $? -ne 0 ]; then
+    echo "Git reset failed! Aborting."
+    exit 1
+fi
+
+echo "Successfully updated to latest main branch."
 
 # Create/activate virtualenv and update dependencies
 echo "Updating Python dependencies..."
