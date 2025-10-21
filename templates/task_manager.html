@@ -715,7 +715,7 @@
             if (currentView === 'project' && currentProjectId) {
                 showingCompleted = false;
                 updateStatButtons();
-                renderTasks();
+                renderTasks(); // This calls updateStats() internally
             }
         });
 
@@ -723,7 +723,7 @@
             if (currentView === 'project' && currentProjectId) {
                 showingCompleted = true;
                 updateStatButtons();
-                renderTasks();
+                renderTasks(); // This calls updateStats() internally
             }
         });
 
@@ -833,7 +833,8 @@
 
             document.getElementById('view-title').textContent = projectName;
             updateStatButtons();
-            renderTasks();
+            renderTasks(); // This calls updateStats() internally
+            updateCounts(); // Update sidebar counts
         }
 
         // Select Category
@@ -889,6 +890,8 @@
                         <div>${translations.noTasks}</div>
                     </div>
                 `;
+                // Still update stats even when no tasks to display
+                updateStats();
                 return;
             }
 
@@ -1057,6 +1060,8 @@
                 if (data.ok) {
                     // Reload tasks to update the UI
                     await loadTasks();
+                    // Explicitly update stat buttons in case we're on a project view
+                    updateStatButtons();
                 }
             } catch (error) {
                 console.error('Error toggling task completion:', error);
