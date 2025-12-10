@@ -623,13 +623,18 @@ async def delete_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --- Helper Function for Starting Timers ---
 async def _start_timer_internal(context: ContextTypes.DEFAULT_TYPE, user_id: int, duration_minutes: int, session_type: str, project_name: str = None, task_name: str = None):
     """Internal helper to start a timer job (work or break)."""
-    if user_id in timer_states:
-        log.warning(f"Attempted to start timer for user {user_id} but another timer is active.")
+    existing_state = timer_states.get(user_id)
+    if existing_state and existing_state.get('state') not in ('finished', 'stopped', None):
+        log.warning(f"Attempted to start timer for user {user_id} but another timer is active (state: {existing_state.get('state')}).")
         try:
              await context.bot.send_message(chat_id=user_id, text=_(user_id, 'timer_already_active'))
         except Exception as bot_error:
              log.error(f"Failed to send message to user {user_id}: {bot_error}")
         return False
+
+    # Clear any finished/stopped state before starting new timer
+    if existing_state:
+        del timer_states[user_id]
 
     log.info(f"Starting {session_type} timer ({duration_minutes} min) for user {user_id}")
     job_data = {'user_id': user_id, 'duration': duration_minutes, 'session_type': session_type}
