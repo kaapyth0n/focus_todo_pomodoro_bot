@@ -106,14 +106,14 @@
             <button id="btn-stop" class="danger">{{ _('button_stop') }}</button>
         </div>
 
-        <!-- Break Options (shown when work finishes) -->
+        <!-- Break Options (shown when work finishes or timer stopped) -->
         <div class="controls" id="break-options" style="display: none;">
             <button id="btn-break-5" class="primary">☕️ 5 {{ _('minute') }}</button>
             <button id="btn-break-10" class="primary">☕️ 10 {{ _('minute') }}</button>
             <button id="btn-break-15" class="primary">☕️ 15 {{ _('minute') }}</button>
         </div>
 
-        <!-- Next Pomodoro Option (shown when break finishes) -->
+        <!-- Next Pomodoro Option (shown when break finishes or as alternative to break) -->
         <div class="controls" id="next-pomodoro" style="display: none;">
             <button id="btn-start-next" class="primary">🚀 {{ _('start_next_pomodoro') }}</button>
         </div>
@@ -367,17 +367,27 @@
 
             // Show/hide control groups based on state and session type
             if (currentState === 'finished' && currentSessionType === 'work') {
-                // Work finished - hide timer controls, show break options
+                // Work finished - show break options AND next pomodoro option
                 timerControls.style.display = 'none';
                 breakOptions.style.display = 'flex';
-                nextPomodoroDiv.style.display = 'none';
-            } else if (currentState === 'finished' && currentSessionType === 'break') {
-                // Break finished - hide timer controls, show start next pomodoro
-                timerControls.style.display = 'none';
-                breakOptions.style.display = 'none';
                 nextPomodoroDiv.style.display = 'flex';
+            } else if (currentState === 'finished' && currentSessionType === 'break') {
+                // Break finished - show next pomodoro AND break options (in case they want another break)
+                timerControls.style.display = 'none';
+                breakOptions.style.display = 'flex';
+                nextPomodoroDiv.style.display = 'flex';
+            } else if (currentState === 'stopped') {
+                // Timer stopped - show both options to start fresh
+                timerControls.style.display = 'none';
+                breakOptions.style.display = 'flex';
+                nextPomodoroDiv.style.display = 'flex';
+            } else if (currentState === 'running' || currentState === 'paused') {
+                // Running or paused - show timer controls only
+                timerControls.style.display = 'flex';
+                breakOptions.style.display = 'none';
+                nextPomodoroDiv.style.display = 'none';
             } else {
-                // Running, paused, or stopped - show timer controls, hide others
+                // Loading, error, etc. - show timer controls (will be disabled)
                 timerControls.style.display = 'flex';
                 breakOptions.style.display = 'none';
                 nextPomodoroDiv.style.display = 'none';
