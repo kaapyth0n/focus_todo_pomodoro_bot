@@ -351,7 +351,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 duration_minutes = int(data.split(":")[1])
                 log.info(f"User {user_id} starting {duration_minutes} min break via callback.")
                 await start_break_timer(context, user_id, duration_minutes)
-                await query.edit_message_text(text=_(user_id, 'break_started', duration_minutes=duration_minutes), reply_markup=None)
+                # Remove the break buttons from the original message (timer start sends its own message)
+                await query.edit_message_reply_markup(reply_markup=None)
             except (IndexError, ValueError) as e:
                 log.warning(f"Error parsing break duration from callback '{data}' for user {user_id}: {e}")
                 await query.edit_message_text(text=_(user_id, 'error_start_break'))
