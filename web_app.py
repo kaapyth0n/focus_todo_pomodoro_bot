@@ -12,6 +12,9 @@ import time
 import urllib.parse as up
 import database
 from handlers import commands as cmd_handlers  # For scheduling PTB job callbacks (timer_finished)
+from handlers.commands import format_minutes_as_mmss  # For formatting time in notifications
+import asyncio
+from telegram import Bot
 
 app = Flask(__name__)
 
@@ -60,6 +63,40 @@ def _get_job_queue():
     if not jq:
         web_log.error("JobQueue is not set in Flask app config. Resume operations will fail.")
     return jq
+
+# --- Integration: Bot instance for sending messages ---
+# Create a bot instance using the token for sending messages from Flask
+_bot = Bot(token=TOKEN) if TOKEN else None
+
+def _send_telegram_message(user_id: int, text: str, parse_mode: str = None, reply_markup=None):
+    """Send a Telegram message from Flask (synchronous context).
+
+    This runs the async send_message in a new event loop since Flask is synchronous.
+    Failures are logged but don't raise exceptions to avoid breaking API responses.
+    """
+    if not _bot:
+        web_log.error("Bot instance not available, cannot send Telegram message")
+        return False
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(
+                _bot.send_message(
+                    chat_id=user_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup
+                )
+            )
+            web_log.debug(f"Sent Telegram notification to user {user_id}")
+            return True
+        finally:
+            loop.close()
+    except Exception as e:
+        web_log.error(f"Failed to send Telegram message to {user_id}: {e}")
+        return False
 
 # --- Telegram Web App initData verification ---
 def _verify_tg_init_data(init_data: str, max_age_sec: int = 3600) -> dict | None:
@@ -406,6 +443,15 @@ def api_pause_timer(user_id: int):
         # Respond with status-like payload
         duration_minutes = state_data.get('duration', 25)
         remaining_seconds = max(0, round((duration_minutes - state_data['accumulated_time']) * 60))
+
+        # Send Telegram notification
+        session_type = state_data.get('session_type', 'work')
+        accumulated_formatted = format_minutes_as_mmss(state_data.get('accumulated_time', 0))
+        _send_telegram_message(
+            user_id,
+            _(user_id, 'timer_paused', timer_type=session_type.capitalize(), accumulated_time=accumulated_formatted)
+        )
+
         return jsonify({'ok': True, 'state': 'paused', 'remaining_seconds': remaining_seconds})
     except Exception as e:
         web_log.error(f"Error pausing timer via API for {user_id}: {e}")
@@ -440,6 +486,14 @@ def api_resume_timer(user_id: int):
         state_data['start_time'] = datetime.now()
         state_data['job'] = job
         remaining_seconds = max(0, round(remaining_min * 60))
+
+        # Send Telegram notification
+        remaining_formatted = format_minutes_as_mmss(remaining_min)
+        _send_telegram_message(
+            user_id,
+            _(user_id, 'timer_resumed', timer_type=session_type.capitalize(), remaining_time=remaining_formatted)
+        )
+
         return jsonify({'ok': True, 'state': 'running', 'remaining_seconds': remaining_seconds})
     except Exception as e:
         web_log.error(f"Error resuming timer via API for {user_id}: {e}")
@@ -498,6 +552,33 @@ def api_stop_timer(user_id: int):
         except Exception:
             pass
 
+        # Send Telegram notification
+        accumulated_str = format_minutes_as_mmss(accumulated)
+        if session_type == 'work':
+            project_name = database.get_project_name(project_id) if project_id else None
+            task_name = database.get_task_name(task_id) if task_id else None
+            if project_id and task_id and project_name and task_name:
+                _send_telegram_message(
+                    user_id,
+                    _(user_id, 'timer_stopped_work', project_name=project_name, task_name=task_name,
+                      accumulated_time=accumulated_str, target_duration=int(duration))
+                )
+            elif project_id and task_id:
+                _send_telegram_message(
+                    user_id,
+                    _(user_id, 'timer_stopped_work_missing', accumulated_time=accumulated_str, target_duration=int(duration))
+                )
+            else:
+                _send_telegram_message(
+                    user_id,
+                    _(user_id, 'timer_stopped_work_unselected', accumulated_time=accumulated_str, target_duration=int(duration))
+                )
+        else:
+            _send_telegram_message(
+                user_id,
+                _(user_id, 'timer_stopped_break', accumulated_time=accumulated_str, target_duration=int(duration))
+            )
+
         return jsonify({'ok': True, 'state': 'stopped', 'accumulated_minutes': round(accumulated, 2)})
     except Exception as e:
         web_log.error(f"Error stopping timer via API for {user_id}: {e}")
@@ -551,6 +632,12 @@ def api_start_break(user_id: int):
             'session_type': 'break',
             'job': job
         }
+
+        # Send Telegram notification
+        _send_telegram_message(
+            user_id,
+            _(user_id, 'timer_break_started', duration_minutes=duration)
+        )
 
         return jsonify({'ok': True, 'duration': duration, 'session_type': 'break', 'state': 'running'})
     except Exception as e:
@@ -615,6 +702,12 @@ def api_start_next_pomodoro(user_id: int):
             'session_type': 'work',
             'job': job
         }
+
+        # Send Telegram notification
+        _send_telegram_message(
+            user_id,
+            _(user_id, 'timer_work_started', task_name=task_name, project_name=project_name, duration_minutes=duration)
+        )
 
         return jsonify({
             'ok': True,
@@ -735,6 +828,11 @@ def api_create_project(user_id: int):
 
         project_id = database.add_project(user_id, project_name)
         if project_id:
+            # Send Telegram notification
+            _send_telegram_message(
+                user_id,
+                _(user_id, 'project_created_selected', project_name=project_name)
+            )
             return jsonify({'ok': True, 'project_id': project_id, 'project_name': project_name})
         else:
             return jsonify({'ok': False, 'error': 'Failed to create project'}), 500
@@ -762,6 +860,12 @@ def api_create_task(user_id: int):
 
         task_id = database.add_task(project_id, task_name)
         if task_id:
+            # Send Telegram notification
+            project_name = database.get_project_name(project_id)
+            _send_telegram_message(
+                user_id,
+                _(user_id, 'task_created_selected', task_name=task_name, project_name=project_name)
+            )
             return jsonify({'ok': True, 'task_id': task_id, 'task_name': task_name})
         else:
             return jsonify({'ok': False, 'error': 'Failed to create task'}), 500
@@ -778,9 +882,18 @@ def api_complete_task(user_id: int, task_id: int):
         return jsonify({'ok': False, 'error': err}), code
 
     try:
+        # Get task name before marking
+        task_name = database.get_task_name(task_id)
+
         # Mark task as done
         success = database.mark_task_status(task_id, database.STATUS_DONE)
         if success:
+            # Send Telegram notification
+            if task_name:
+                _send_telegram_message(
+                    user_id,
+                    _(user_id, 'task_archived_toast', task_name=task_name)
+                )
             return jsonify({'ok': True, 'task_id': task_id, 'status': database.STATUS_DONE})
         else:
             return jsonify({'ok': False, 'error': 'Failed to mark task as completed'}), 500
@@ -797,9 +910,18 @@ def api_uncomplete_task(user_id: int, task_id: int):
         return jsonify({'ok': False, 'error': err}), code
 
     try:
+        # Get task name before marking
+        task_name = database.get_task_name(task_id)
+
         # Mark task as active
         success = database.mark_task_status(task_id, database.STATUS_ACTIVE)
         if success:
+            # Send Telegram notification
+            if task_name:
+                _send_telegram_message(
+                    user_id,
+                    _(user_id, 'task_reactivated_toast', task_name=task_name)
+                )
             return jsonify({'ok': True, 'task_id': task_id, 'status': database.STATUS_ACTIVE})
         else:
             return jsonify({'ok': False, 'error': 'Failed to mark task as active'}), 500
@@ -869,6 +991,13 @@ def api_start_task_timer(user_id: int, task_id: int):
             'session_type': 'work',
             'job': job
         }
+
+        # Send Telegram notification
+        project_name = database.get_project_name(project_id)
+        _send_telegram_message(
+            user_id,
+            _(user_id, 'timer_work_started', task_name=task_name, project_name=project_name, duration_minutes=duration)
+        )
 
         return jsonify({
             'ok': True,
