@@ -704,9 +704,13 @@ async def start_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     log.debug(f"/start_timer command received from user {user_id}")
     try:
-        if user_id in timer_states:
+        existing_state = timer_states.get(user_id)
+        if existing_state and existing_state.get('state') in ('running', 'paused'):
             await update.message.reply_text(_(user_id, 'timer_already_active'))
             return
+        # Clear any finished/stopped state
+        if existing_state:
+            del timer_states[user_id]
             
         project_id = database.get_current_project(user_id)
         task_id = database.get_current_task(user_id)
@@ -1486,12 +1490,12 @@ async def handle_break_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Handles the 'Break (5m)' button press by calling start_break_timer."""
     user_id = update.message.from_user.id
     log.debug(f"User {user_id} triggered 'break' action via text")
-    
+
     # Check if another timer is active before starting break
-    if user_id in timer_states:
+    existing_state = timer_states.get(user_id)
+    if existing_state and existing_state.get('state') in ('running', 'paused'):
         log.warning(f"User {user_id} pressed break button while timer active.")
-        # Use translation for the error message
-        await update.message.reply_text(_(user_id, 'error_timer_active_break')) 
+        await update.message.reply_text(_(user_id, 'error_timer_active_break'))
         return
 
     # Start the break timer (using the internal function directly)

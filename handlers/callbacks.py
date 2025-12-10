@@ -341,8 +341,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # --- Break Timer Callback ---
         elif data.startswith("start_break:"):
             log.debug(f"Handling start_break callback for user {user_id}")
-            timer_states = context.bot_data.setdefault('timer_states', {}) # Should this use config.timer_states?
-            if user_id in timer_states and timer_states[user_id].get('status') in ['running', 'paused']:
+            existing_state = timer_states.get(user_id)
+            if existing_state and existing_state.get('state') in ['running', 'paused']:
                 log.warning(f"User {user_id} tried to start a break timer via callback while another timer is active.")
                 await query.answer(_(user_id, 'error_timer_active_break'), show_alert=True)
                 return
